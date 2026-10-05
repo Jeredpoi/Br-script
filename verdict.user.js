@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.1.0
+// @version      1.2.0
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       VERDICT
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'VERDICT', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.1.0', // подставляет build.sh из @version
+    version: '1.2.0', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -143,6 +143,20 @@ const KIND_TAILS = {
     app: { approve: 'Заявка одобрена, тема закрыта.', deny: 'Заявка отклонена, тема закрыта.' },
     bio: { approve: 'Биография одобрена.', deny: 'Биография отклонена.' }
 };
+// разделы, для которых итоговую строку можно задать отдельно
+const TAIL_KINDS = { complaint: 'Жалобы', appeal: 'Обжалования', app: 'Заявки', bio: 'Биографии' };
+// итоговая строка: своя для раздела → своя общая → стандартная для раздела → стандартная
+const Tails = {
+    std(kind, v) {
+        return (KIND_TAILS[kind] && KIND_TAILS[kind][v]) || (VERDICTS[v] || VERDICTS.none).tail;
+    },
+    get(kind, v) {
+        const own = Settings.get().answer.tails;
+        const t = (kind && own[kind + '.' + v]) || own[v];
+        if (!t) return this.std(kind, v);
+        return t.trim() === '-' ? '' : t;
+    }
+};
 const VERDICT_BASE = { watched: 'approve', zga: 'ga', cur: 'review', spec: 'ga' };
 
 const DEFAULT_SETTINGS = {
@@ -168,7 +182,8 @@ const DEFAULT_SETTINGS = {
         greet: true,
         mention: true,
         signature: '',
-        banner: ''
+        banner: '',
+        tails: {} // свои итоговые строки: 'approve' для всех разделов, 'complaint.approve' только для жалоб
     },
     status: {
         apply: true, // менять статус темы после отправки ответа
@@ -241,6 +256,14 @@ const Settings = {
             m.open = !!m.open;
             m.sticky = !!m.sticky;
         }
+        const t = s.answer.tails;
+        if (!t || typeof t !== 'object' || Array.isArray(t)) s.answer.tails = {};
+        else
+            for (const k of Object.keys(t)) {
+                const v = k.split('.').pop();
+                if (!VERDICTS[v] || typeof t[k] !== 'string') delete t[k];
+                else t[k] = t[k].slice(0, 200);
+            }
         const w = s.theme.wall;
         if (!w || typeof w !== 'object' || (w.kind === 'url' && !/^(https:|data:image\/)/.test(String(w.url))))
             s.theme.wall = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.theme.wall));
@@ -1894,8 +1917,7 @@ const Answer = {
         const found = item.id && Packs.item(item.id);
         const kind =
             ctx.kind || (found && found.pack.kind) || (item.id && String(item.id).startsWith('bio-') ? 'bio' : '');
-        const byKind = KIND_TAILS[kind] && KIND_TAILS[kind][item.verdict];
-        const tailText = item.tail !== undefined ? item.tail : byKind || (VERDICTS[item.verdict] || VERDICTS.none).tail;
+        const tailText = this.fill(item.tail !== undefined ? item.tail : Tails.get(kind, item.verdict), v).trim();
         const tail = tailText
             ? `[COLOR=${pal[item.verdict] || pal[VERDICT_BASE[item.verdict]] || pal.none}][B]${tailText}[/B][/COLOR]`
             : '';
@@ -4400,6 +4422,12 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .crop-box i { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px; border-radius: 50%; background: #fff; cursor: nwse-resize; box-shadow: 0 2px 6px rgba(0,0,0,.5); }
 .crop { overflow: hidden; }
 .logo-prev { height: 56px; max-width: 240px; object-fit: contain; border-radius: 10px; background: rgba(255,255,255,.04); padding: 4px; }
+.tl-list { padding: 4px 14px; }
+.tl-row { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: center; padding: 6px 0; }
+.tl-v { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12.5px; color: var(--c); min-width: 0; }
+.tl-more { margin-top: 10px; }
+.tl-more summary { cursor: pointer; color: var(--mut, #9aa0ab); font-size: 12.5px; padding: 6px 0; }
+@media (max-width: 760px) { .tl-row { grid-template-columns: 1fr; gap: 4px; } }
 .qn-list { padding: 4px 14px; }
 .qn-row { display: grid; grid-template-columns: minmax(150px, 1.2fr) 2fr 150px auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .qn-row:last-child { border-bottom: 0; }
@@ -6778,7 +6806,7 @@ const SettingsUI = {
         f('text').value = d.text;
         f('tail').value = d.tail !== undefined ? d.tail : '';
         // итоговая строка по умолчанию зависит от раздела
-        const tailFor = v => (KIND_TAILS[pack.kind] && KIND_TAILS[pack.kind][v]) || VERDICTS[v].tail;
+        const tailFor = v => Tails.get(pack.kind, v);
         f('tail').placeholder = tailFor(d.verdict);
         const pv = () => {
             f('tail').placeholder = tailFor(f('verdict').value) || '(без итоговой строки)';
@@ -6985,6 +7013,7 @@ const SettingsUI = {
             300
         );
         sec.appendChild(this.row('Баннер сверху', 'Необязательно', ban));
+        this.tailsSection(pane);
         const d = this.sec(pane, 'Как увидит игрок');
         const box = U.h(`<div></div>`);
         d.appendChild(box);
@@ -6998,6 +7027,60 @@ const SettingsUI = {
             );
         };
         demo();
+        this._tailDemo = demo;
+    },
+
+    // свои итоговые строки вердиктов: «Одобрено, тема закрыта.» → что угодно
+    tailsSection(pane) {
+        const own = Settings.get().answer.tails;
+        const sec = this.sec(pane, 'Итоговые строки');
+        sec.appendChild(
+            U.h(
+                `<div class="muted" style="margin:-4px 0 10px;font-size:11.5px">Строка в конце ответа. Пусто — стандартная, «-» — без строки. Работают {user}, {admin}, {date}. В самом ответе строку можно переписать отдельно.</div>`
+            )
+        );
+        const input = (key, std) => {
+            const i = U.h(`<input class="inp" maxlength="200">`);
+            i.value = own[key] || '';
+            i.placeholder = std || '(без строки)';
+            i.oninput = U.debounce(() => {
+                Settings.patch(x => {
+                    const v = i.value.trim();
+                    if (v) x.answer.tails[key] = v;
+                    else delete x.answer.tails[key];
+                });
+                if (this._tailDemo) this._tailDemo();
+            }, 300);
+            return i;
+        };
+        const row = (key, v, label, std) => {
+            const r = U.h(
+                `<div class="tl-row"><span class="tl-v" style="--c:${VERDICTS[v].color}">${icon(VERDICTS[v].icon, 12)}${U.esc(label)}</span></div>`
+            );
+            r.appendChild(input(key, std));
+            return r;
+        };
+        const box = U.h(`<div class="card tl-list"></div>`);
+        VERDICT_ORDER.filter(v => v !== 'none').forEach(v => box.appendChild(row(v, v, VERDICTS[v].label, VERDICTS[v].tail)));
+        sec.appendChild(box);
+        // одобрено/отказано по разделам: «Жалоба одобрена», «Заявка отклонена»
+        const more = U.h(
+            `<details class="tl-more"><summary>По разделам: жалобы, обжалования, заявки, биографии</summary><div class="card tl-list"></div></details>`
+        );
+        const inner = more.querySelector('.tl-list');
+        Object.entries(TAIL_KINDS).forEach(([kind, name]) =>
+            ['approve', 'deny'].forEach(v =>
+                inner.appendChild(row(kind + '.' + v, v, `${name}: ${VERDICTS[v].label.toLowerCase()}`, Tails.std(kind, v)))
+            )
+        );
+        if (Object.keys(own).some(k => k.includes('.'))) more.open = true;
+        sec.appendChild(more);
+        const reset = U.h(`<button class="btn ghost" style="margin-top:10px">${icon('x', 14)}Вернуть стандартные</button>`);
+        reset.onclick = () => {
+            Settings.patch(x => (x.answer.tails = {}));
+            this.draw();
+        };
+        if (Object.keys(own).length) sec.appendChild(reset);
     },
 
     fxSection(pane) {
