@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.5.0
+// @version      1.5.1
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       VERDICT
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'VERDICT', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.5.0', // подставляет build.sh из @version
+    version: '1.5.1', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9066,7 +9066,7 @@ const ShareTemplates = {
     }
 };
 
-// новая версия: раз в 6 часов смотрим verdict.meta.js рядом с опубликованным скриптом
+// новая версия: раз в 2 часа смотрим verdict.meta.js рядом с опубликованным скриптом
 const Updater = {
     ready() {
         return /^https:\/\//.test(BRAND.update || '');
@@ -9079,7 +9079,7 @@ const Updater = {
     },
     check(force) {
         if (!this.ready() || typeof GM_xmlhttpRequest !== 'function') return Promise.resolve(null);
-        if (!force && Date.now() - Store.get('updChecked', 0) < 6 * 3600e3)
+        if (!force && Date.now() - Store.get('updChecked', 0) < 2 * 3600e3)
             return Promise.resolve(Store.get('updLatest', null));
         Store.set('updChecked', Date.now());
         return new Promise(res =>
