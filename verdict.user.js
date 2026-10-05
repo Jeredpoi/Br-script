@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.0
+// @version      1.6.1
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -18,7 +18,6 @@
 // @connect      raw.githubusercontent.com
 // @run-at       document-start
 // @noframes
-// @updateURL    https://raw.githubusercontent.com/Jeredpoi/Br-script/main/verdict.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Jeredpoi/Br-script/main/verdict.user.js
 // @license      Proprietary, © VERDICT. Копирование и выдача за своё запрещены.
 // ==/UserScript==
@@ -39,7 +38,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.0', // подставляет build.sh из @version
+    version: '1.6.1', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9076,7 +9075,7 @@ const ShareTemplates = {
     }
 };
 
-// новая версия: раз в 2 часа смотрим verdict.meta.js рядом с опубликованным скриптом
+// новая версия: раз в 2 часа читаем начало опубликованного verdict.user.js (только шапку)
 const Updater = {
     ready() {
         return /^https:\/\//.test(BRAND.update || '');
@@ -9095,10 +9094,12 @@ const Updater = {
         return new Promise(res =>
             GM_xmlhttpRequest({
                 method: 'GET',
-                url: `${BRAND.update}/verdict.meta.js?t=${Date.now()}`,
+                url: `${BRAND.update}/verdict.user.js?t=${Date.now()}`,
+                headers: { Range: 'bytes=0-1499' },
                 timeout: 20000,
                 onload: r => {
-                    const m = r.status === 200 && /@version\s+([\d.]+)/.exec(r.responseText || '');
+                    const m =
+                        (r.status === 200 || r.status === 206) && /@version\s+([\d.]+)/.exec(r.responseText || '');
                     if (m) Store.set('updLatest', m[1]);
                     res(m ? m[1] : null);
                 },
