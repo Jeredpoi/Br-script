@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.3
+// @version      1.6.4
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -38,7 +38,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.3', // подставляет build.sh из @version
+    version: '1.6.4', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -6468,7 +6468,8 @@ const Logo = {
             el.style.objectFit = 'cover';
             el.style.borderRadius = data.round ? '50%' : '14px';
         };
-        if (!data || !data.src) {
+        // «off»: фото сохранено, но стоит стандартный логотип
+        if (!data || !data.src || data.mode === 'off') {
             if (side) side.remove();
             restore();
             return;
@@ -8173,7 +8174,7 @@ const SettingsUI = {
         up.onclick = () => Logo.pick();
         lrow.appendChild(up);
         if (cur) {
-            const back = U.h(`<button class="btn ghost">Вернуть стандартный</button>`);
+            const back = U.h(`<button class="btn ghost">${icon('trash', 14)}Удалить фото</button>`);
             back.onclick = () => {
                 Logo.reset();
                 this.draw();
@@ -8185,9 +8186,9 @@ const SettingsUI = {
             lg.appendChild(
                 this.row(
                     'Как поставить',
-                    'Рядом — название проекта остаётся на месте',
+                    'Рядом — название проекта остаётся. «Стандартный» возвращает старый логотип, фото не удаляется',
                     this.select(
-                        { beside: 'Рядом с логотипом', replace: 'Вместо логотипа' },
+                        { beside: 'Рядом с логотипом', replace: 'Вместо логотипа', off: 'Стандартный логотип' },
                         cur.mode || 'beside',
                         v => {
                             Store.set('logo', Object.assign({}, Store.get('logo', {}), { mode: v }));
