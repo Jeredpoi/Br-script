@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.4.0
+// @version      1.5.0
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       VERDICT
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'VERDICT', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.4.0', // подставляет build.sh из @version
+    version: '1.5.0', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -210,6 +210,7 @@ const DEFAULT_SETTINGS = {
     verdictVis: {}, // ручные правки видимости вердиктов
     hiddenItems: [], // ответы, скрытые кнопкой «глаз»
     autograph: { style: 'classic', custom: '' },
+    threadAge: true, // сколько прошло с создания темы
     qnav: { on: true, items: [] }, // быстрая навигация в шапке: { id, name, url, group }
     stats: true, // анонимная отметка «скрипт запущен» раз в день, видна разработчику как число пользователей
     permCheck: true, // прятать панель в разделах, где нет прав модератора
@@ -6873,6 +6874,72 @@ const BBPop = {
     }
 };
 
+// возраст темы рядом с датой создания: «6д 9ч»; чем дольше тема ждёт, тем заметнее метка
+const Age = {
+    text(ms) {
+        const m = Math.max(0, Math.floor(ms / 60000));
+        if (m < 60) return m + 'м';
+        const h = Math.floor(m / 60);
+        if (h < 24) return h + 'ч ' + (m % 60) + 'м';
+        const d = Math.floor(h / 24);
+        return d + 'д ' + (h % 24) + 'ч';
+    },
+    level(ms) {
+        const h = ms / 3600000;
+        return h < 12 ? 'ok' : h < 48 ? 'warn' : 'late';
+    },
+    // дата создания: в списке тем и в шапке открытой темы
+    targets() {
+        const out = [];
+        document.querySelectorAll('.structItem--thread').forEach(row => {
+            if (row.querySelector('.structItem-status--locked')) return;
+            const t = row.querySelector('.structItem-startDate time[data-time], .structItem-startDate time[datetime]');
+            if (t) out.push([t, t.closest('.structItem-startDate')]);
+        });
+        const head = document.querySelector('.p-description time[data-time], .p-description time[datetime]');
+        if (head && !document.querySelector('.p-body-header .structItem-status--locked, .blockStatus--locked')) {
+            const li = head.closest('li') || head;
+            out.push([head, li]);
+        }
+        return out;
+    },
+    created(t) {
+        const s = Number(t.getAttribute('data-time'));
+        return s ? s * 1000 : Date.parse(t.getAttribute('datetime')) || 0;
+    },
+    draw() {
+        if (!Settings.get().threadAge) {
+            document.querySelectorAll('.vd-age').forEach(e => e.remove());
+            return;
+        }
+        const now = Date.now();
+        this.targets().forEach(([t, place]) => {
+            const at = this.created(t);
+            if (!at) return;
+            let b = place.nextElementSibling;
+            if (!b || !b.classList.contains('vd-age')) {
+                b = document.createElement(place.tagName === 'LI' ? 'li' : 'span');
+                b.className = 'vd-age';
+                place.after(b);
+            }
+            const ms = now - at;
+            const txt = this.text(ms);
+            if (b.dataset.t === txt) return;
+            b.dataset.t = txt;
+            b.dataset.l = this.level(ms);
+            b.title =
+                'С момента создания темы прошло ' + txt.replace('д', ' дн.').replace('ч', ' ч.').replace('м', ' мин.');
+            b.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${txt}`;
+        });
+    },
+    start() {
+        this.draw();
+        if (this._t) return;
+        this._t = setInterval(() => document.hidden || this.draw(), 60000);
+        Bus.on('settings', () => this.draw());
+    }
+};
+
 // настройки
 const SETTINGS_TABS = [
     ['role', 'badge', 'Должность', 'Какие разделы и вердикты показывать'],
@@ -8324,6 +8391,17 @@ const SettingsUI = {
         );
         g.appendChild(
             this.row(
+                'Сколько прошло с создания темы',
+                'Метка рядом с датой: зелёная до 12 ч, жёлтая до 2 дней, потом красная. Закрытые темы без метки',
+                this.sw(s.threadAge, v =>
+                    Settings.patch(x => {
+                        x.threadAge = v;
+                    })
+                )
+            )
+        );
+        g.appendChild(
+            this.row(
                 'Списки ответов',
                 'Когда раскрывать причины под кнопками вердиктов',
                 this.select({ hover: 'При наведении', click: 'Только по нажатию' }, s.openOn, v =>
@@ -9064,6 +9142,12 @@ const BASE_CSS = `
 /* встроенная панель: редактор форума продолжается под ней без своего верхнего скругления */
 .vd-bar-host.vd-docked + .fr-box, .vd-bar-host.vd-docked + textarea { border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; border-top-width: 0 !important; }
 .vd-bar-host.vd-docked + .fr-box .fr-toolbar { border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
+/* сколько прошло с создания темы */
+.vd-age { display: inline-flex !important; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap; vertical-align: middle;
+  color: #8fd19e; background: rgba(47,191,113,.12); border: 1px solid rgba(47,191,113,.28); }
+.vd-age[data-l="warn"] { color: #f5c542; background: rgba(245,197,66,.12); border-color: rgba(245,197,66,.3); }
+.vd-age[data-l="late"] { color: #ff6b6b; background: rgba(229,72,77,.13); border-color: rgba(229,72,77,.35); }
+.structItem-parts > li.vd-age::before, .listInline--bullet > li.vd-age::before { content: none !important; display: none !important; }
 /* быстрая навигация в шапке */
 #vd-qnav { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0 12px; overflow-x: auto; scrollbar-width: none; }
 #vd-qnav::-webkit-scrollbar { display: none; }
@@ -9325,6 +9409,7 @@ function boot() {
         Logo.apply();
         QNav.mount();
         Bus.on('settings', () => QNav.mount());
+        Age.start();
         // ответы разработчика на обращения
         setTimeout(() => {
             Feedback.notify();
