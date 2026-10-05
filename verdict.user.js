@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.1
+// @version      1.6.2
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -38,7 +38,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.1', // подставляет build.sh из @version
+    version: '1.6.2', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5151,6 +5151,16 @@ a { transition: color .2s; }
   background-color: rgba(8,9,13,.45) !important; border-color: var(--vd-line) !important; color: #eef0f4 !important;
 }
 .input, .fr-box { border-radius: 12px !important; }
+/* склеенные поля: префикс темы + заголовок, поиск + кнопка */
+.inputGroup-text, .inputGroup .inputGroup-text {
+  background-color: rgba(8,9,13,.45) !important; border: 1px solid var(--vd-line) !important; color: #eef0f4 !important; border-radius: 12px !important;
+}
+.inputGroup--joined > * { border-radius: 0 !important; }
+.inputGroup--joined > :first-child { border-top-left-radius: 12px !important; border-bottom-left-radius: 12px !important; }
+.inputGroup--joined > :last-child { border-top-right-radius: 12px !important; border-bottom-right-radius: 12px !important; }
+.inputGroup--joined > .inputGroup-text + .input, .inputGroup--joined > .input + .inputGroup-text { border-left-width: 0 !important; }
+.inputGroup-text .label { margin: 0 !important; }
+.structItem--quickCreate, .structItem--quickCreate .structItem-cell { background: transparent !important; }
 /* без overflow:hidden: иначе выпадающие меню редактора (размер, цвет) обрезаются */
 .fr-box .fr-toolbar { border-top-left-radius: 12px !important; border-top-right-radius: 12px !important; }
 .block-container > :first-child, .message-inner > :first-child { border-top-left-radius: 16px; border-top-right-radius: 16px; }
@@ -6428,7 +6438,9 @@ function mountAutograph() {
 // свой логотип в шапке форума: фото обрезается рамкой, которую можно двигать и тянуть за угол
 const Logo = {
     img() {
-        return document.querySelector('.p-header-logo img, .uix_logo img, .p-header-logo--image img');
+        return document.querySelector(
+            '.p-header-logo img:not(#vd-logo-side), .uix_logo img:not(#vd-logo-side), .p-header-logo--image img:not(#vd-logo-side)'
+        );
     },
     apply() {
         const img = this.img();
@@ -6439,21 +6451,50 @@ const Logo = {
             img.dataset.vdSrcset = img.getAttribute('srcset') || '';
             img.dataset.vdH = String(img.getBoundingClientRect().height || img.height || 0);
         }
-        if (data && data.src) {
+        const h = Number(img.dataset.vdH) || 80;
+        // вернуть стандартную картинку, если раньше подменяли
+        const restore = () => {
+            if (img.getAttribute('src') !== img.dataset.vdSrc) {
+                img.src = img.dataset.vdSrc;
+                if (img.dataset.vdSrcset) img.setAttribute('srcset', img.dataset.vdSrcset);
+                img.removeAttribute('style');
+            }
+        };
+        let side = document.getElementById('vd-logo-side');
+        const style = el => {
+            el.style.height = h + 'px';
+            el.style.width = 'auto';
+            el.style.maxWidth = 'none';
+            el.style.objectFit = 'cover';
+            el.style.borderRadius = data.round ? '50%' : '14px';
+        };
+        if (!data || !data.src) {
+            if (side) side.remove();
+            restore();
+            return;
+        }
+        if (data.mode === 'replace') {
+            if (side) side.remove();
             if (img.getAttribute('src') === data.src) return;
-            const h = Number(img.dataset.vdH) || 80;
             img.removeAttribute('srcset');
             img.src = data.src;
-            img.style.height = h + 'px';
-            img.style.width = 'auto';
-            img.style.maxWidth = 'none';
-            img.style.objectFit = 'cover';
-            img.style.borderRadius = data.round ? '50%' : '14px';
-        } else if (img.dataset.vdSrc && img.getAttribute('src') !== img.dataset.vdSrc) {
-            img.src = img.dataset.vdSrc;
-            if (img.dataset.vdSrcset) img.setAttribute('srcset', img.dataset.vdSrcset);
-            img.removeAttribute('style');
+            style(img);
+            return;
         }
+        // по умолчанию фото стоит рядом, название проекта остаётся
+        restore();
+        if (!side) {
+            side = document.createElement('img');
+            side.id = 'vd-logo-side';
+            side.alt = '';
+            img.before(side);
+            const box = img.parentNode;
+            box.style.display = 'inline-flex';
+            box.style.alignItems = 'center';
+            box.style.gap = '16px';
+        }
+        if (side.getAttribute('src') !== data.src) side.src = data.src;
+        style(side);
     },
     // пропорции стандартного логотипа, чтобы рамка «как у логотипа» совпадала
     ratio() {
@@ -6591,7 +6632,11 @@ const Logo = {
             out.width = W;
             out.height = H;
             out.getContext('2d').drawImage(img, r.x / k, r.y / k, r.w / k, r.h / k, 0, 0, W, H);
-            Store.set('logo', { src: out.toDataURL('image/jpeg', 0.9), round: shape === 'round' });
+            Store.set('logo', {
+                src: out.toDataURL('image/jpeg', 0.9),
+                round: shape === 'round',
+                mode: (Store.get('logo', null) || {}).mode || 'beside'
+            });
             this.apply();
             close();
             if (SettingsUI.scrim) SettingsUI.draw();
@@ -8095,6 +8140,21 @@ const SettingsUI = {
             lrow.appendChild(back);
         }
         lg.appendChild(lrow);
+        if (cur)
+            lg.appendChild(
+                this.row(
+                    'Как поставить',
+                    'Рядом — название проекта остаётся на месте',
+                    this.select(
+                        { beside: 'Рядом с логотипом', replace: 'Вместо логотипа' },
+                        cur.mode || 'beside',
+                        v => {
+                            Store.set('logo', Object.assign({}, Store.get('logo', {}), { mode: v }));
+                            Logo.apply();
+                        }
+                    )
+                )
+            );
         this.fxSection(pane);
         const seeds = this._seeds || (this._seeds = {});
         const gen = this.sec(pane, 'Генеративные фоны');
@@ -9188,6 +9248,10 @@ const BASE_CSS = `
 /* встроенная панель: редактор форума продолжается под ней без своего верхнего скругления */
 .vd-bar-host.vd-docked + .fr-box, .vd-bar-host.vd-docked + textarea { border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; border-top-width: 0 !important; }
 .vd-bar-host.vd-docked + .fr-box .fr-toolbar { border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
+/* своё фото рядом с логотипом: оригинал не сжимается */
+#vd-logo-side { flex: none; }
+#vd-logo-side ~ img { flex: none; max-width: none !important; }
+@media (max-width: 650px) { #vd-logo-side { height: 44px !important; } }
 /* сколько прошло с создания темы */
 .vd-age { display: inline-flex !important; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap; vertical-align: middle;
   color: #8fd19e; background: rgba(47,191,113,.12); border: 1px solid rgba(47,191,113,.28); }
