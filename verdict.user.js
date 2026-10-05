@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.5.1
+// @version      1.6.0
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
-// @author       VERDICT
+// @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -36,10 +36,10 @@ W.__verdictLoaded = true;
 
 const BRAND = Object.freeze({
     name: 'VERDICT',
-    author: 'VERDICT', // должен совпадать с @author в шапке скрипта
+    author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.5.1', // подставляет build.sh из @version
+    version: '1.6.0', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -4922,6 +4922,9 @@ input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var
 .item .hide:hover { background: rgba(255,255,255,.08); color: var(--tx); }
 .toast-act { margin-left: 6px; padding: 5px 10px; border-radius: 8px; background: rgba(255,255,255,.08); font-weight: 700; font-size: 12px; }
 .toast-act:hover { background: var(--acc); color: #fff; }
+.toast-later { padding: 5px 8px; border-radius: 8px; background: transparent; color: var(--mut, #9aa0ab); font-size: 12px; }
+.toast-later:hover { color: inherit; background: rgba(255,255,255,.06); }
+.toast-act:hover { background: var(--acc); color: #fff; }
 .fxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
 .fxbtn { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.025); font-weight: 650; text-align: left; }
 .fxbtn:hover { border-color: var(--line-2); }
@@ -5222,14 +5225,21 @@ function toast(text, kind = 'ok', action) {
     };
     const [ic, c] = map[kind] || map.ok;
     const t = U.h(
-        `<div class="toast"><span class="vic" style="--c:${c}">${icon(ic, 13)}</span><span>${U.esc(text)}</span>${action ? `<button class="toast-act">${U.esc(action.label)}</button>` : ''}</div>`
+        `<div class="toast"><span class="vic" style="--c:${c}">${icon(ic, 13)}</span><span>${U.esc(text)}</span>${action ? `<button class="toast-act">${U.esc(action.label)}</button>` : ''}${action && action.later ? `<button class="toast-later">Позже</button>` : ''}</div>`
     );
     if (action)
         t.querySelector('.toast-act').onclick = () => {
             action.run();
             t.remove();
         };
+    if (action && action.later)
+        t.querySelector('.toast-later').onclick = () => {
+            action.later();
+            t.remove();
+        };
     Layer.root().querySelector('.toasts').appendChild(t);
+    // важное уведомление висит, пока не ответишь
+    if (action && action.sticky) return;
     setTimeout(
         () => {
             t.style.transition = 'opacity .3s';
@@ -9104,15 +9114,50 @@ const Updater = {
     // Tampermonkey сам открывает страницу установки для ссылки на .user.js
     install() {
         window.open(`${BRAND.update}/verdict.user.js`, '_blank', 'noopener');
+        toast('В открывшейся вкладке нажми «Обновить», потом перезагрузи форум', 'info');
+    },
+    // уведомление, разосланное разработчиком вручную: спрашиваем почту раз в 20 минут
+    async news() {
+        if (!Mail.url() || Date.now() - Store.get('newsChecked', 0) < 20 * 60e3) return null;
+        Store.set('newsChecked', Date.now());
+        try {
+            const r = await Mail.call({ action: 'news' });
+            const n = r && r.news;
+            if (!n || !/^\d+\.\d+\.\d+$/.test(n.v) || !this.newer(n.v, BRAND.version)) return null;
+            if (!Store.get('updLatest', null) || this.newer(n.v, Store.get('updLatest', '0.0.0')))
+                Store.set('updLatest', n.v);
+            // новая рассылка сбрасывает «Позже»
+            if (Store.get('newsSeen', 0) !== n.at) {
+                Store.set('newsSeen', n.at);
+                Store.set('updSnooze', null);
+            }
+            return n;
+        } catch {
+            return null;
+        }
     },
     async notify() {
+        const n = await this.news();
         await this.check(false);
         const v = this.available();
-        if (v)
-            toast(`Вышла новая версия VERDICT ${v}`, 'info', {
-                label: 'Обновить',
-                run: () => this.install()
-            });
+        const snooze = Store.get('updSnooze', null);
+        if (!v || this._shown === v || (snooze && snooze.v === v && Date.now() - snooze.at < 2 * 3600e3)) return;
+        this._shown = v;
+        const note = n && n.v === v && n.note ? ': ' + n.note : '';
+        toast(`Вышла новая версия VERDICT ${v}${note}`, 'info', {
+            label: 'Обновить',
+            sticky: true,
+            run: () => this.install(),
+            later: () => {
+                this._shown = null;
+                Store.set('updSnooze', { v, at: Date.now() });
+            }
+        });
+    },
+    // страница форума бывает открыта часами: проверяем и без перезагрузки
+    watch() {
+        this.notify();
+        setInterval(() => document.hidden || this.notify(), 20 * 60e3);
     }
 };
 
@@ -9414,7 +9459,7 @@ function boot() {
         setTimeout(() => {
             Feedback.notify();
             Stats.ping();
-            Updater.notify();
+            Updater.watch();
         }, 4000);
         // редактор XenForo появляется не сразу
         const mo = new MutationObserver(
