@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.5
+// @version      1.6.6
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -18,6 +18,7 @@
 // @connect      raw.githubusercontent.com
 // @run-at       document-start
 // @noframes
+// @updateURL    https://raw.githubusercontent.com/Jeredpoi/Br-script/main/verdict.meta.js
 // @downloadURL  https://raw.githubusercontent.com/Jeredpoi/Br-script/main/verdict.user.js
 // @license      Proprietary, © VERDICT. Копирование и выдача за своё запрещены.
 // ==/UserScript==
@@ -38,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.5', // подставляет build.sh из @version
+    version: '1.6.6', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9012,7 +9013,15 @@ Object.assign(SettingsUI, {
                     c.textContent = 'Проверяю…';
                     await Promise.all([Updater.news(true), Updater.check(true)]);
                     draw();
-                    if (!Updater.available()) toast('Обновлений нет');
+                    const err = Store.get('newsErr', '');
+                    if (err)
+                        toast(
+                            err.includes('Неизвестное')
+                                ? 'Почта разработчика ещё не обновлена, рассылка не работает'
+                                : 'Почта не ответила: ' + err,
+                            'err'
+                        );
+                    else if (!Updater.available()) toast('Обновлений нет');
                 };
         };
         draw();
@@ -9309,7 +9318,11 @@ const Updater = {
         if (!Mail.url() || (!force && Date.now() - Store.get('newsChecked', 0) < 20 * 60e3)) return null;
         Store.set('newsChecked', Date.now());
         try {
-            const r = await Mail.call({ action: 'news' });
+            const r = await Mail.call({ action: 'news' }).catch(e => {
+                Store.set('newsErr', e.message);
+                throw e;
+            });
+            Store.set('newsErr', '');
             const n = r && r.news;
             // последняя рассылка видна во вкладке «Связь»
             if (n && /^\d+\.\d+\.\d+$/.test(n.v)) Store.set('newsLast', n);
