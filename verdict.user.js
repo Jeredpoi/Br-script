@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.2.0
+// @version      1.3.0
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       VERDICT
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'VERDICT', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.2.0', // подставляет build.sh из @version
+    version: '1.3.0', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -4422,6 +4422,18 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .crop-box i { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px; border-radius: 50%; background: #fff; cursor: nwse-resize; box-shadow: 0 2px 6px rgba(0,0,0,.5); }
 .crop { overflow: hidden; }
 .logo-prev { height: 56px; max-width: 240px; object-fit: contain; border-radius: 10px; background: rgba(255,255,255,.04); padding: 4px; }
+.bbp-field { position: relative; }
+.bbpop { position: absolute; z-index: 30; display: flex; align-items: center; gap: 3px; padding: 5px; border-radius: 11px; background: rgba(16,18,24,.97); border: 1px solid var(--line-2); box-shadow: 0 14px 34px -10px rgba(0,0,0,.8); white-space: nowrap; animation: bbp-in .12s ease-out; }
+@keyframes bbp-in { from { opacity: 0; transform: translateY(4px); } }
+.bbpop > button { min-width: 28px; height: 28px; padding: 0 6px; border-radius: 7px; background: transparent; border: 0; color: var(--tx, #e4e6eb); font-size: 12.5px; cursor: pointer; }
+.bbpop > button:hover { background: rgba(255,255,255,.08); }
+.bbp-sw { display: flex; gap: 3px; align-items: center; }
+.bbp-sw button, .bbp-sw label { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.15); background: var(--c); cursor: pointer; transition: transform .12s; }
+.bbp-sw button:hover, .bbp-sw label:hover { transform: scale(1.2); }
+.bbp-sw label { position: relative; overflow: hidden; background: conic-gradient(#e5484d, #f5c542, #2fbf71, #3aa0ff, #a970ff, #e5484d); }
+.bbp-sw input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.bbp-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 3px; }
+@media (max-width: 760px) { .bbpop { flex-wrap: wrap; white-space: normal; max-width: 100%; } }
 .tl-list { padding: 4px 14px; }
 .tl-row { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: center; padding: 6px 0; }
 .tl-v { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12.5px; color: var(--c); min-width: 0; }
@@ -6440,6 +6452,102 @@ const QNav = {
 };
 addEventListener('scroll', () => QNav.close(), { passive: true });
 
+// всплывающее меню над выделенным текстом в поле с BBCode: цвет, жирный, курсив, размер
+const BB_COLORS = ['#e5484d', '#ff7a45', '#f5c542', '#2fbf71', '#22b8a8', '#3aa0ff', '#a970ff', '#ff5fa2', '#ffffff', '#8b8f9a'];
+const BBPop = {
+    attach(ta) {
+        let pop = null;
+        const hide = () => {
+            if (pop) pop.remove();
+            pop = null;
+        };
+        // обернуть выделение тегом; повторное нажатие того же тега снимает его
+        const wrap = (open, close) => {
+            const a = ta.selectionStart,
+                b = ta.selectionEnd;
+            let sel = ta.value.slice(a, b);
+            const tag = open.match(/^\[(\w+)/)[1];
+            const re = new RegExp(`^\\[${tag}(=[^\\]]*)?\\]([\\s\\S]*)\\[/${tag}\\]$`, 'i');
+            const m = sel.match(re);
+            sel = m && (open === `[${tag}]` || m[1] === open.slice(tag.length + 1, -1)) ? m[2] : open + (m ? m[2] : sel) + close;
+            ta.setRangeText(sel, a, b, 'select');
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+            ta.focus();
+            place();
+        };
+        const clear = () => {
+            const a = ta.selectionStart,
+                b = ta.selectionEnd;
+            const plain = ta.value.slice(a, b).replace(/\[\/?(COLOR|B|I|U|S|SIZE|FONT)(=[^\]]*)?\]/gi, '');
+            ta.setRangeText(plain, a, b, 'select');
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+            ta.focus();
+            place();
+        };
+        const build = () => {
+            pop = U.h(`<div class="bbpop" role="toolbar">
+                <span class="bbp-sw">${BB_COLORS.map(c => `<button data-c="${c}" style="--c:${c}" title="${c}"></button>`).join('')}<label title="Свой цвет"><input type="color" value="#f5c542"></label></span>
+                <span class="bbp-sep"></span>
+                <button data-t="B"><b>Ж</b></button><button data-t="I"><i>К</i></button><button data-t="U"><u>П</u></button>
+                <span class="bbp-sep"></span>
+                <button data-z="-" title="Меньше">A−</button><button data-z="+" title="Крупнее">A+</button>
+                <button data-x title="Убрать оформление">${icon('x', 12)}</button></div>`);
+            // не терять выделение при клике по меню
+            pop.addEventListener('mousedown', e => {
+                if (e.target.type !== 'color') e.preventDefault();
+            });
+            pop.querySelectorAll('[data-c]').forEach(b => (b.onclick = () => wrap(`[COLOR=${b.dataset.c}]`, '[/COLOR]')));
+            const pick = pop.querySelector('input[type=color]');
+            pick.onchange = () => wrap(`[COLOR=${pick.value}]`, '[/COLOR]');
+            pop.querySelectorAll('[data-t]').forEach(b => (b.onclick = () => wrap(`[${b.dataset.t}]`, `[/${b.dataset.t}]`)));
+            pop.querySelectorAll('[data-z]').forEach(
+                b =>
+                    (b.onclick = () => {
+                        const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+                        const cur = +((sel.match(/^\[SIZE=(\d)\]/i) || [])[1] || 4);
+                        const n = Math.max(1, Math.min(7, cur + (b.dataset.z === '+' ? 1 : -1)));
+                        const inner = sel.replace(/^\[SIZE=\d\]([\s\S]*)\[\/SIZE\]$/i, '$1');
+                        ta.setRangeText(n === 4 ? inner : `[SIZE=${n}]${inner}[/SIZE]`, ta.selectionStart, ta.selectionEnd, 'select');
+                        ta.dispatchEvent(new Event('input', { bubbles: true }));
+                        ta.focus();
+                    })
+            );
+            pop.querySelector('[data-x]').onclick = clear;
+            ta.parentNode.insertBefore(pop, ta);
+        };
+        let at = null;
+        const place = () => {
+            if (!pop) return;
+            const host = ta.offsetParent || ta.parentNode;
+            const hr = host.getBoundingClientRect(),
+                tr = ta.getBoundingClientRect();
+            const x = at ? at.x : tr.left + 40,
+                y = at ? at.y : tr.top + 8;
+            const w = pop.offsetWidth;
+            pop.style.left = Math.max(0, Math.min(x - hr.left - w / 2, hr.width - w)) + 'px';
+            pop.style.top = Math.max(tr.top - hr.top - pop.offsetHeight - 6, y - hr.top - pop.offsetHeight - 10) + 'px';
+        };
+        const check = e => {
+            if (ta.selectionStart === ta.selectionEnd) return hide();
+            if (e && e.clientX) at = { x: e.clientX, y: e.clientY };
+            if (!pop) build();
+            place();
+        };
+        ta.addEventListener('mouseup', check);
+        ta.addEventListener('keyup', e => {
+            if (e.shiftKey || e.key === 'Shift' || (e.ctrlKey && e.key === 'a')) {
+                at = null;
+                check();
+            } else if (ta.selectionStart === ta.selectionEnd) hide();
+        });
+        ta.addEventListener('blur', () => setTimeout(() => {
+            const r = ta.getRootNode();
+            if (pop && !pop.contains(r.activeElement)) hide();
+        }, 150));
+        ta.addEventListener('scroll', place);
+    }
+};
+
 // настройки
 const SETTINGS_TABS = [
     ['role', 'badge', 'Должность', 'Какие разделы и вердикты показывать'],
@@ -6831,6 +6939,8 @@ const SettingsUI = {
                 })
         );
         ['title', 'key', 'verdict', 'text', 'tail'].forEach(n => f(n).addEventListener('input', pv));
+        f('text').parentNode.classList.add('bbp-field');
+        BBPop.attach(f('text'));
         scrim.querySelectorAll('[data-var]').forEach(
             b =>
                 (b.onclick = e => {
@@ -7790,7 +7900,11 @@ const SettingsUI = {
             };
         });
         prev.innerHTML = BB.render(Autograph.build('custom', 'Nick_Name'));
-        sec.append(ta, vars, prev);
+        const hint = U.h(`<div class="muted" style="margin:-4px 0 8px;font-size:11.5px">Выдели часть текста — появится меню: цвет, жирный, курсив, размер.</div>`);
+        const field = U.h('<div class="bbp-field"></div>');
+        field.appendChild(ta);
+        sec.append(hint, field, vars, prev);
+        BBPop.attach(ta);
     },
 
     /* Статусы */
