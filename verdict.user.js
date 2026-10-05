@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.2
+// @version      1.6.3
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -38,7 +38,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.2', // подставляет build.sh из @version
+    version: '1.6.3', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -6734,7 +6734,9 @@ const QNav = {
                 groups.get(i.group).push(i);
             } else parts.push(i);
         });
-        bar.innerHTML = '';
+        bar.innerHTML =
+            '<button type="button" class="vd-qn-arr l" title="Влево">‹</button><div class="vd-qn-track"></div><button type="button" class="vd-qn-arr r" title="Вправо">›</button>';
+        const track = bar.querySelector('.vd-qn-track');
         parts.forEach(p => {
             // группа из одной ссылки — просто ссылка
             if (p.group && groups.get(p.group).length === 1) p = groups.get(p.group)[0];
@@ -6749,13 +6751,13 @@ const QNav = {
                     e.stopPropagation();
                     this.menu(b, list);
                 };
-                bar.appendChild(b);
+                track.appendChild(b);
             } else {
                 const a = document.createElement('a');
                 a.className = 'vd-qn' + (this.active(p.url) ? ' on' : '');
                 a.href = new URL(p.url, location.origin).href;
                 a.textContent = p.name;
-                bar.appendChild(a);
+                track.appendChild(a);
             }
         });
         // в разделе форума, которого ещё нет в навигации, — предложить добавить
@@ -6767,7 +6769,7 @@ const QNav = {
             add.title = 'Добавить этот раздел в быструю навигацию';
             add.textContent = '+ этот раздел';
             add.onclick = () => SettingsUI.open('qnav');
-            bar.appendChild(add);
+            track.appendChild(add);
         }
         if (!items.length && !here) {
             const hint = document.createElement('button');
@@ -6775,8 +6777,47 @@ const QNav = {
             hint.className = 'vd-qn vd-qn-add';
             hint.textContent = '+ быстрая навигация';
             hint.onclick = () => SettingsUI.open('qnav');
-            bar.appendChild(hint);
+            track.appendChild(hint);
         }
+        this.scroller(bar, track);
+    },
+    // кнопок больше, чем влезает: стрелки по краям, колесо мыши и свайп листают вбок
+    scroller(bar, track) {
+        const [l, r] = bar.querySelectorAll('.vd-qn-arr');
+        const sync = () => {
+            const max = track.scrollWidth - track.clientWidth;
+            l.hidden = track.scrollLeft <= 2;
+            r.hidden = track.scrollLeft >= max - 2;
+            bar.classList.toggle('fl', !l.hidden);
+            bar.classList.toggle('fr', !r.hidden);
+        };
+        const step = d => track.scrollBy({ left: d * Math.max(120, track.clientWidth * 0.7), behavior: 'smooth' });
+        l.onclick = () => step(-1);
+        r.onclick = () => step(1);
+        track.addEventListener(
+            'scroll',
+            () => {
+                sync();
+                this.close();
+            },
+            { passive: true }
+        );
+        track.addEventListener(
+            'wheel',
+            e => {
+                if (track.scrollWidth <= track.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+                e.preventDefault();
+                track.scrollLeft += e.deltaY;
+            },
+            { passive: false }
+        );
+        if (this._ro) this._ro.disconnect();
+        this._ro = new ResizeObserver(sync);
+        this._ro.observe(track);
+        // текущий раздел сразу виден
+        const on = track.querySelector('.vd-qn.on');
+        if (on && on.offsetLeft + on.offsetWidth > track.clientWidth) track.scrollLeft = on.offsetLeft - 24;
+        sync();
     },
     menu(anchor, list) {
         this.close();
@@ -9259,8 +9300,17 @@ const BASE_CSS = `
 .vd-age[data-l="late"] { color: #ff6b6b; background: rgba(229,72,77,.13); border-color: rgba(229,72,77,.35); }
 .structItem-parts > li.vd-age::before, .listInline--bullet > li.vd-age::before { content: none !important; display: none !important; }
 /* быстрая навигация в шапке */
-#vd-qnav { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0 12px; overflow-x: auto; scrollbar-width: none; }
-#vd-qnav::-webkit-scrollbar { display: none; }
+#vd-qnav { flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; padding: 0 8px; }
+.p-nav-inner > .p-nav-scroller { flex: 0 1 auto; }
+.vd-qn-track { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding: 2px 0; }
+.vd-qn-track::-webkit-scrollbar { display: none; }
+#vd-qnav.fl .vd-qn-track { -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px); mask-image: linear-gradient(90deg, transparent, #000 36px); }
+#vd-qnav.fr .vd-qn-track { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
+#vd-qnav.fl.fr .vd-qn-track { -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
+.vd-qn-arr { flex: none; width: 26px; height: 26px; margin: 0 2px; border-radius: 50%; display: grid; place-items: center; padding: 0 0 2px; cursor: pointer; font: 700 18px/1 Arial, sans-serif; color: #fff;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); transition: background .15s; }
+.vd-qn-arr:hover { background: color-mix(in srgb, var(--vd-acc, #e5484d) 40%, transparent); }
+.vd-qn-arr[hidden] { display: none; }
 @media (max-width: 650px) { #vd-qnav { display: none; } }
 .vd-qn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 9px; font: 600 12.5px/1 inherit; color: #d6d8de !important; text-decoration: none !important; white-space: nowrap; cursor: pointer;
   background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); transition: background .15s, border-color .15s, color .15s; }
