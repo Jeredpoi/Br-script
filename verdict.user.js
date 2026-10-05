@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.4
+// @version      1.6.5
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -38,7 +38,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.4', // подставляет build.sh из @version
+    version: '1.6.5', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -238,7 +238,10 @@ function deepMerge(base, over) {
 const Settings = {
     _v: null,
     get() {
-        return this._v || (this._v = this.clean(deepMerge(DEFAULT_SETTINGS, Store.get('settings', {}))));
+        return (
+            this._v ||
+            (this._v = this.clean(deepMerge(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), Store.get('settings', {}))))
+        );
     },
     // цвета и префиксы попадают в HTML и CSS, поэтому из хранилища и импорта берём только корректные
     clean(s) {
@@ -255,6 +258,20 @@ const Settings = {
             m.prefix = Math.max(0, parseInt(m.prefix, 10) || 0);
             m.open = !!m.open;
             m.sticky = !!m.sticky;
+        }
+        const q = s.qnav;
+        if (!q || typeof q !== 'object') s.qnav = { on: true, items: [] };
+        else {
+            q.on = q.on !== false;
+            const str = v => (typeof v === 'string' ? v : '');
+            q.items = (Array.isArray(q.items) ? q.items : [])
+                .filter(i => i && typeof i === 'object')
+                .map(i => ({
+                    id: str(i.id) || 'q' + U.uid(),
+                    name: str(i.name).slice(0, 40),
+                    url: str(i.url),
+                    group: str(i.group)
+                }));
         }
         const t = s.answer.tails;
         if (!t || typeof t !== 'object' || Array.isArray(t)) s.answer.tails = {};
@@ -772,7 +789,7 @@ const DEFAULT_PACKS = [
                 'approve',
                 'Аморальные действия',
                 'Посмотрели доказательства: игрок совершал аморальные действия сексуального характера. Это нарушение пункта 2.08 правил сервера. Игрок получит наказание: Jail на 30 минут.',
-                { key: 'аморал', cue: 'аморал|пошл|домогал' }
+                { key: 'аморал', cue: 'аморал|домогал|пошлост' }
             ),
             it(
                 'approve',
@@ -799,7 +816,7 @@ const DEFAULT_PACKS = [
                 'approve',
                 'Долг не возвращён',
                 'Посмотрели доказательства: игрок взял в долг и не вернул его в срок. Это нарушение пункта 2.57 правил сервера. Игрок получит наказание: блокировка аккаунта на 30 дней.',
-                { key: 'долг', cue: 'долг|занял|не вернул|займ' }
+                { key: 'долг', cue: 'долг(?!о)|в долг|занял (у|деньг|мне)|не вернул|займ' }
             ),
             it(
                 'approve',
@@ -1674,7 +1691,14 @@ const Packs = {
                 if (!mine) return;
                 dp.items.forEach(i => {
                     if (seenItems.includes(sig(dp.id, i)) || mine.items.some(x => x.title === i.title)) return;
-                    mine.items.push(Object.assign(JSON.parse(JSON.stringify(i)), { id: dp.id + '-' + U.uid() }));
+                    const copy = Object.assign(JSON.parse(JSON.stringify(i)), { id: dp.id + '-' + U.uid() });
+                    // рядом с ответами того же вердикта, а не в конце списка
+                    let at = -1;
+                    mine.items.forEach((x, n) => {
+                        if (x.verdict === copy.verdict) at = n;
+                    });
+                    if (at >= 0) mine.items.splice(at + 1, 0, copy);
+                    else mine.items.push(copy);
                     added++;
                 });
             });
@@ -1692,6 +1716,12 @@ const Packs = {
                 const own = mine.items.find(x => x.title === d.title);
                 if (own && prev !== undefined && own.text === prev && own.text !== d.text) {
                     own.text = d.text;
+                    updated++;
+                }
+                // у неизменённых ответов обновляем и подсказку для подбора
+                if (own && own.text === d.text && (own.cue || '') !== (d.cue || '')) {
+                    if (d.cue) own.cue = d.cue;
+                    else delete own.cue;
                     updated++;
                 }
             });
@@ -2217,7 +2247,8 @@ const Answer = {
         const found = item.id && Packs.item(item.id);
         const kind =
             ctx.kind || (found && found.pack.kind) || (item.id && String(item.id).startsWith('bio-') ? 'bio' : '');
-        const tailText = this.fill(item.tail !== undefined ? item.tail : Tails.get(kind, item.verdict), v).trim();
+        const rawTail = item.tail !== undefined ? item.tail : Tails.get(kind, item.verdict);
+        const tailText = String(rawTail).trim() === '-' ? '' : this.fill(rawTail, v).trim();
         const tail = tailText
             ? `[COLOR=${pal[item.verdict] || pal[VERDICT_BASE[item.verdict]] || pal.none}][B]${tailText}[/B][/COLOR]`
             : '';
@@ -4734,6 +4765,7 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .bbp-sw input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .bbp-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 3px; }
 @media (max-width: 760px) { .bbpop { flex-wrap: wrap; white-space: normal; max-width: 100%; } }
+.upd-card.on { border-color: color-mix(in srgb, var(--acc) 55%, transparent); background: color-mix(in srgb, var(--acc) 10%, transparent); }
 .tl-list { padding: 4px 14px; }
 .tl-row { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: center; padding: 6px 0; }
 .tl-v { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12.5px; color: var(--c); min-width: 0; }
@@ -5155,9 +5187,9 @@ a { transition: color .2s; }
 .inputGroup-text, .inputGroup .inputGroup-text {
   background-color: rgba(8,9,13,.45) !important; border: 1px solid var(--vd-line) !important; color: #eef0f4 !important; border-radius: 12px !important;
 }
-.inputGroup--joined > * { border-radius: 0 !important; }
-.inputGroup--joined > :first-child { border-top-left-radius: 12px !important; border-bottom-left-radius: 12px !important; }
-.inputGroup--joined > :last-child { border-top-right-radius: 12px !important; border-bottom-right-radius: 12px !important; }
+.inputGroup.inputGroup--joined > * { border-radius: 0 !important; }
+.inputGroup.inputGroup--joined > :first-child { border-top-left-radius: 12px !important; border-bottom-left-radius: 12px !important; }
+.inputGroup.inputGroup--joined > :last-child { border-top-right-radius: 12px !important; border-bottom-right-radius: 12px !important; }
 .inputGroup--joined > .inputGroup-text + .input, .inputGroup--joined > .input + .inputGroup-text { border-left-width: 0 !important; }
 .inputGroup-text .label { margin: 0 !important; }
 .structItem--quickCreate, .structItem--quickCreate .structItem-cell { background: transparent !important; }
@@ -6636,7 +6668,7 @@ const Logo = {
             Store.set('logo', {
                 src: out.toDataURL('image/jpeg', 0.9),
                 round: shape === 'round',
-                mode: (Store.get('logo', null) || {}).mode || 'beside'
+                mode: (Store.get('logo', null) || {}).mode === 'replace' ? 'replace' : 'beside'
             });
             this.apply();
             close();
@@ -6670,7 +6702,7 @@ const QNAV_PRESETS = [
 
 const QNav = {
     items() {
-        return (Settings.get().qnav.items || []).filter(i => i && i.name && this.safe(i.url));
+        return (Settings.get().qnav.items || []).filter(i => i && i.name && i.url && this.safe(i.url));
     },
     // только ссылки этого форума
     safe(url) {
@@ -6680,13 +6712,19 @@ const QNav = {
             return false;
         }
     },
-    active(url) {
+    // путь раздела со слешем на конце: /forums/zhaloby.12 и /forums/zhaloby.12/ — одно и то же
+    path(url) {
         try {
-            const u = new URL(url, location.origin);
-            return u.pathname.length > 1 && location.pathname.startsWith(u.pathname);
+            const p = new URL(url, location.origin).pathname;
+            return p.endsWith('/') ? p : p + '/';
         } catch {
-            return false;
+            return '';
         }
+    },
+    active(url) {
+        const p = this.path(url);
+        const here = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
+        return p.length > 1 && here.startsWith(p);
     },
     // раздел, в котором сейчас находишься (для «Добавить этот раздел»)
     here() {
@@ -6735,13 +6773,15 @@ const QNav = {
                 groups.get(i.group).push(i);
             } else parts.push(i);
         });
+        const keep = bar.querySelector('.vd-qn-track');
+        const was = keep ? keep.scrollLeft : 0;
         bar.innerHTML =
             '<button type="button" class="vd-qn-arr l" title="Влево">‹</button><div class="vd-qn-track"></div><button type="button" class="vd-qn-arr r" title="Вправо">›</button>';
         const track = bar.querySelector('.vd-qn-track');
         parts.forEach(p => {
             // группа из одной ссылки — просто ссылка
             if (p.group && groups.get(p.group).length === 1) p = groups.get(p.group)[0];
-            if (p.group && !p.url) {
+            if (p.group && !p.id) {
                 const list = groups.get(p.group);
                 const on = list.some(i => this.active(i.url));
                 const b = document.createElement('button');
@@ -6762,8 +6802,8 @@ const QNav = {
             }
         });
         // в разделе форума, которого ещё нет в навигации, — предложить добавить
-        const herePath = here && new URL(here.url).pathname;
-        if (here && !items.some(i => new URL(i.url, location.origin).pathname === herePath)) {
+        const herePath = here && this.path(here.url);
+        if (here && !items.some(i => this.path(i.url) === herePath)) {
             const add = document.createElement('button');
             add.type = 'button';
             add.className = 'vd-qn vd-qn-add';
@@ -6780,10 +6820,10 @@ const QNav = {
             hint.onclick = () => SettingsUI.open('qnav');
             track.appendChild(hint);
         }
-        this.scroller(bar, track);
+        this.scroller(bar, track, was);
     },
     // кнопок больше, чем влезает: стрелки по краям, колесо мыши и свайп листают вбок
-    scroller(bar, track) {
+    scroller(bar, track, was) {
         const [l, r] = bar.querySelectorAll('.vd-qn-arr');
         const sync = () => {
             const max = track.scrollWidth - track.clientWidth;
@@ -6807,6 +6847,9 @@ const QNav = {
             'wheel',
             e => {
                 if (track.scrollWidth <= track.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+                const max = track.scrollWidth - track.clientWidth;
+                // упёрлись в край — колесо снова листает страницу
+                if ((e.deltaY < 0 && track.scrollLeft <= 0) || (e.deltaY > 0 && track.scrollLeft >= max - 1)) return;
                 e.preventDefault();
                 track.scrollLeft += e.deltaY;
             },
@@ -6817,7 +6860,8 @@ const QNav = {
         this._ro.observe(track);
         // текущий раздел сразу виден
         const on = track.querySelector('.vd-qn.on');
-        if (on && on.offsetLeft + on.offsetWidth > track.clientWidth) track.scrollLeft = on.offsetLeft - 24;
+        if (was) track.scrollLeft = was;
+        else if (on && on.offsetLeft + on.offsetWidth > track.clientWidth) track.scrollLeft = on.offsetLeft - 24;
         sync();
     },
     menu(anchor, list) {
@@ -6876,7 +6920,9 @@ const BBPop = {
             let sel = ta.value.slice(a, b);
             const tag = open.match(/^\[(\w+)/)[1];
             const re = new RegExp(`^\\[${tag}(=[^\\]]*)?\\]([\\s\\S]*)\\[/${tag}\\]$`, 'i');
-            const m = sel.match(re);
+            let m = sel.match(re);
+            // «[B]a[/B] и [B]b[/B]» — это два куска, а не один обёрнутый
+            if (m && new RegExp(`\\[/${tag}\\]`, 'i').test(m[2])) m = null;
             sel =
                 m && (open === `[${tag}]` || m[1] === open.slice(tag.length + 1, -1))
                     ? m[2]
@@ -6919,9 +6965,12 @@ const BBPop = {
                 b =>
                     (b.onclick = () => {
                         const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
-                        const cur = +((sel.match(/^\[SIZE=(\d)\]/i) || [])[1] || 4);
+                        // размер меняем, только если весь кусок одного размера
+                        const whole = /^\[SIZE=(\d)\]([\s\S]*)\[\/SIZE\]$/i.exec(sel);
+                        const own = whole && !/\[\/SIZE\]/i.test(whole[2]);
+                        const cur = own ? +whole[1] : 4;
                         const n = Math.max(1, Math.min(7, cur + (b.dataset.z === '+' ? 1 : -1)));
-                        const inner = sel.replace(/^\[SIZE=\d\]([\s\S]*)\[\/SIZE\]$/i, '$1');
+                        const inner = own ? whole[2] : sel;
                         ta.setRangeText(
                             n === 4 ? inner : `[SIZE=${n}]${inner}[/SIZE]`,
                             ta.selectionStart,
@@ -6930,6 +6979,7 @@ const BBPop = {
                         );
                         ta.dispatchEvent(new Event('input', { bubbles: true }));
                         ta.focus();
+                        place();
                     })
             );
             pop.querySelector('[data-x]').onclick = clear;
@@ -6993,7 +7043,12 @@ const Age = {
             if (t) out.push([t, t.closest('.structItem-startDate')]);
         });
         const head = document.querySelector('.p-description time[data-time], .p-description time[datetime]');
-        if (head && !document.querySelector('.p-body-header .structItem-status--locked, .blockStatus--locked')) {
+        if (
+            head &&
+            !document.querySelector(
+                '.p-body-header .structItem-status--locked, .blockStatus--locked, .blockStatus-message--locked'
+            )
+        ) {
             const li = head.closest('li') || head;
             out.push([head, li]);
         }
@@ -8677,7 +8732,7 @@ Object.assign(SettingsUI, {
 
         // текущий раздел форума одной кнопкой
         const here = QNav.here();
-        if (here && !cfg.items.some(i => i.url === here.url)) {
+        if (here && !cfg.items.some(i => i.url && QNav.path(i.url) === QNav.path(here.url))) {
             const h = this.card(pane, 'Этот раздел');
             const box = U.h(`<div class="btns" style="align-items:center;padding:10px 0">
                 <input class="inp" style="flex:1;min-width:160px" maxlength="40">
@@ -8935,12 +8990,42 @@ const Feedback = {
 };
 
 Object.assign(SettingsUI, {
+    // обновление скрипта: последняя рассылка разработчика и кнопка «Обновить»
+    updCard(pane) {
+        const box = U.h(`<div class="card upd-card" style="padding:14px;margin-bottom:18px"></div>`);
+        pane.appendChild(box);
+        const draw = () => {
+            const v = Updater.available();
+            const n = Store.get('newsLast', null);
+            const note =
+                n && v && n.v === v && n.note ? `<div class="muted" style="margin-top:4px">${U.esc(n.note)}</div>` : '';
+            box.classList.toggle('on', !!v);
+            box.innerHTML = v
+                ? `<div class="btns" style="align-items:center"><span class="vic" style="--c:var(--acc)">${icon('download', 14)}</span><div style="flex:1;min-width:160px"><b>Вышла новая версия ${U.esc(v)}</b><div class="muted" style="font-size:12px">У тебя ${U.esc(BRAND.version)}</div>${note}</div><button class="btn pri" data-a="upd">${icon('download', 14)}Обновить</button></div>`
+                : `<div class="btns" style="align-items:center"><span class="vic" style="--c:#2fbf71">${icon('check', 14)}</span><div style="flex:1"><b>У тебя последняя версия ${U.esc(BRAND.version)}</b>${n && n.note && n.v === BRAND.version ? `<div class="muted" style="font-size:12px;margin-top:2px">Что нового: ${U.esc(n.note)}</div>` : ''}</div><button class="btn ghost" data-a="chk">Проверить</button></div>`;
+            const u = box.querySelector('[data-a="upd"]');
+            if (u) u.onclick = () => Updater.install();
+            const c = box.querySelector('[data-a="chk"]');
+            if (c)
+                c.onclick = async () => {
+                    c.disabled = true;
+                    c.textContent = 'Проверяю…';
+                    await Promise.all([Updater.news(true), Updater.check(true)]);
+                    draw();
+                    if (!Updater.available()) toast('Обновлений нет');
+                };
+        };
+        draw();
+        // при открытии вкладки спрашиваем сразу, не дожидаясь плановой проверки
+        Promise.all([Updater.news(true), Updater.check(false)]).then(() => box.isConnected && draw());
+    },
     tab_contact(pane) {
         const dev = BRAND.dev;
         pane.appendChild(
             U.h(`<div class="hero"><span class="big">${icon('chat', 22)}</span><div><b>Написать разработчику</b>
             <p>Идея, ошибка, свой шаблон или фон. Сообщение уходит разработчику напрямую, на форуме его никто не увидит. Ответ появится здесь.</p></div></div>`)
         );
+        this.updCard(pane);
         if (!this.fb) this.fb = { kind: 'idea', title: '', text: '', diag: true, tpl: '' };
         const fb = this.fb;
 
@@ -9220,12 +9305,14 @@ const Updater = {
         toast('В открывшейся вкладке нажми «Обновить», потом перезагрузи форум', 'info');
     },
     // уведомление, разосланное разработчиком вручную: спрашиваем почту раз в 20 минут
-    async news() {
-        if (!Mail.url() || Date.now() - Store.get('newsChecked', 0) < 20 * 60e3) return null;
+    async news(force) {
+        if (!Mail.url() || (!force && Date.now() - Store.get('newsChecked', 0) < 20 * 60e3)) return null;
         Store.set('newsChecked', Date.now());
         try {
             const r = await Mail.call({ action: 'news' });
             const n = r && r.news;
+            // последняя рассылка видна во вкладке «Связь»
+            if (n && /^\d+\.\d+\.\d+$/.test(n.v)) Store.set('newsLast', n);
             if (!n || !/^\d+\.\d+\.\d+$/.test(n.v) || !this.newer(n.v, BRAND.version)) return null;
             if (!Store.get('updLatest', null) || this.newer(n.v, Store.get('updLatest', '0.0.0')))
                 Store.set('updLatest', n.v);
@@ -9293,7 +9380,7 @@ const BASE_CSS = `
 /* своё фото рядом с логотипом: оригинал не сжимается */
 #vd-logo-side { flex: none; }
 #vd-logo-side ~ img { flex: none; max-width: none !important; }
-@media (max-width: 650px) { #vd-logo-side { height: 44px !important; } }
+@media (max-width: 650px) { #vd-logo-side { height: 44px !important; max-width: 38vw !important; } }
 /* сколько прошло с создания темы */
 .vd-age { display: inline-flex !important; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap; vertical-align: middle;
   color: #8fd19e; background: rgba(47,191,113,.12); border: 1px solid rgba(47,191,113,.28); }
