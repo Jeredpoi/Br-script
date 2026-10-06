@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.7.0
+// @version      1.7.1
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.7.0', // подставляет build.sh из @version
+    version: '1.7.1', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -1227,8 +1227,8 @@ const DEFAULT_PACKS = [
             it(
                 'watched',
                 'Администратор снят',
-                'Этот администратор уже снят с должности или ушёл сам. Спасибо, что сообщили.',
-                { key: 'снят' }
+                'Администратор был ранее снят с должности.',
+                { key: 'снят', tail: 'Рассмотрено.' }
             ),
             it(
                 'deny',
@@ -1724,6 +1724,9 @@ const Packs = {
                 const own = mine.items.find(x => x.title === d.title);
                 if (own && prev !== undefined && own.text === prev && own.text !== d.text) {
                     own.text = d.text;
+                    // вместе с текстом стандартного ответа обновляется и его итоговая строка
+                    if (d.tail !== undefined) own.tail = d.tail;
+                    else delete own.tail;
                     updated++;
                 }
                 // у неизменённых ответов обновляем и подсказку для подбора
