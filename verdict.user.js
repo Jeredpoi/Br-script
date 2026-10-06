@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.9.1
+// @version      1.9.2
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.9.1', // подставляет build.sh из @version
+    version: '1.9.2', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -6458,9 +6458,18 @@ const AUTOGRAPH_STYLES = {
 };
 
 const Autograph = {
+    // только сам ник: в заголовке профиля рядом лежит меню «Предыдущие имена» с текстом «Загрузка…»
     owner() {
-        const el = document.querySelector('.memberHeader-name .username, .memberHeader-name');
-        return el ? el.textContent.trim() : 'игрок';
+        const u = document.querySelector('.memberHeader-name .username');
+        if (u) return u.textContent.trim();
+        const h = document.querySelector('.memberHeader-name');
+        if (!h) return 'игрок';
+        const own = [...h.childNodes]
+            .filter(n => n.nodeType === 3)
+            .map(n => n.nodeValue)
+            .join('')
+            .trim();
+        return own || h.textContent.replace(/Предыдущие имена[\s\S]*$/, '').trim() || 'игрок';
     },
     template(style) {
         const a = Settings.get().autograph;
