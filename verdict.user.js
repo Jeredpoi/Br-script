@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.8
+// @version      1.6.9
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.8', // подставляет build.sh из @version
+    version: '1.6.9', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5281,7 +5281,7 @@ function toast(text, kind = 'ok', action) {
         };
     Layer.root().querySelector('.toasts').appendChild(t);
     // важное уведомление висит, пока не ответишь
-    if (action && action.sticky) return;
+    if (action && action.sticky) return t;
     setTimeout(
         () => {
             t.style.transition = 'opacity .3s';
@@ -5290,6 +5290,7 @@ function toast(text, kind = 'ok', action) {
         },
         kind === 'err' || action ? 5000 : 2600
     );
+    return t;
 }
 
 function verdictOf(item) {
@@ -9300,7 +9301,8 @@ const Updater = {
                 onload: r => {
                     const m =
                         (r.status === 200 || r.status === 206) && /@version\s+([\d.]+)/.exec(r.responseText || '');
-                    if (m) Store.set('updLatest', m[1]);
+                    // не опускаем версию ниже разосланной: raw GitHub может отставать на несколько минут
+                    if (m && !this.newer(Store.get('updLatest', '0.0.0'), m[1])) Store.set('updLatest', m[1]);
                     res(m ? m[1] : null);
                 },
                 onerror: () => res(null),
@@ -9314,7 +9316,9 @@ const Updater = {
     },
     // Tampermonkey сам открывает страницу установки для ссылки на .user.js
     install() {
-        window.open(`${BRAND.update}/verdict.user.js`, '_blank', 'noopener');
+        if (this._toast) this._toast.remove();
+        this._toast = null;
+        window.open(`${BRAND.update}/verdict.user.js?t=${Date.now()}`, '_blank', 'noopener');
         toast('В открывшейся вкладке нажми «Обновить», потом перезагрузи форум', 'info');
     },
     // уведомление, разосланное разработчиком вручную: спрашиваем почту не чаще раза в 5 минут
@@ -9351,7 +9355,7 @@ const Updater = {
         if (!v || this._shown === v || (snooze && snooze.v === v && Date.now() - snooze.at < 2 * 3600e3)) return;
         this._shown = v;
         const note = n && n.v === v && n.note ? ': ' + n.note : '';
-        toast(`Вышла новая версия VERDICT ${v}${note}`, 'info', {
+        this._toast = toast(`Вышла новая версия VERDICT ${v}${note}`, 'info', {
             label: 'Обновить',
             sticky: true,
             run: () => this.install(),
@@ -9403,7 +9407,7 @@ const BASE_CSS = `
 /* сколько прошло с создания темы */
 .vd-age { --c: color-mix(in srgb, var(--vd-acc, #2fbf71) 60%, #ffffff);
   display: inline-flex !important; align-items: center; gap: 5px; margin-left: 6px; padding: 1px 8px 1px 3px; border-radius: 999px; vertical-align: middle; white-space: nowrap;
-  font: 700 11px/1.55 inherit; letter-spacing: .2px; color: color-mix(in srgb, var(--c) 45%, #fff);
+  font-weight: 700; font-size: 11px; line-height: 1.55; letter-spacing: .2px; color: color-mix(in srgb, var(--c) 45%, #fff);
   background: color-mix(in srgb, var(--vd-block, #1b1d24) 72%, transparent); border: 1px solid color-mix(in srgb, var(--c) 38%, transparent);
   box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--c) 9%, transparent); transition: color .3s, border-color .3s; }
 .vd-age[data-l="warn"] { --c: color-mix(in srgb, var(--vd-acc, #e5484d) 30%, #f5a524); }
