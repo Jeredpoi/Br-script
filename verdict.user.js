@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.9
+// @version      1.7.0
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.9', // подставляет build.sh из @version
+    version: '1.7.0', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -98,15 +98,15 @@ const Store = {
 };
 
 const VERDICTS = {
-    approve: { label: 'Одобрено', tail: 'Одобрено, тема закрыта.', icon: 'check', color: '#2fbf71' },
-    deny: { label: 'Отказано', tail: 'Отказано, тема закрыта.', icon: 'x', color: '#e5484d' },
+    approve: { label: 'Одобрено', tail: 'Одобрено.', icon: 'check', color: '#2fbf71' },
+    deny: { label: 'Отказано', tail: 'Отказано.', icon: 'x', color: '#e5484d' },
     review: {
         label: 'На рассмотрении',
         tail: 'Тема на рассмотрении — ответим здесь.',
         icon: 'clock',
         color: '#f5a524'
     },
-    close: { label: 'Закрыто', tail: 'Тема закрыта.', icon: 'lock', color: '#8b8f9a' },
+    close: { label: 'Закрыто', tail: 'Закрыто.', icon: 'lock', color: '#8b8f9a' },
     tech: { label: 'Тех. специалисту', tail: 'Передали техническому специалисту.', icon: 'wrench', color: '#3aa0ff' },
     ga: { label: 'ГА', tail: 'Передали Главному Администратору.', icon: 'crown', color: '#ff7a45' },
     kp: { label: 'КП', tail: 'Передали Команде Проекта.', icon: 'users', color: '#a970ff' },
@@ -138,9 +138,9 @@ const VERDICT_ORDER = [
 // цвет итоговой строки для статусов, которых нет в палитрах ответа
 // итоговая строка зависит от раздела: «жалоба одобрена», «заявка отклонена»…
 const KIND_TAILS = {
-    complaint: { approve: 'Жалоба одобрена, тема закрыта.', deny: 'В жалобе отказано, тема закрыта.' },
-    appeal: { approve: 'Обжалование одобрено, тема закрыта.', deny: 'В обжаловании отказано, тема закрыта.' },
-    app: { approve: 'Заявка одобрена, тема закрыта.', deny: 'Заявка отклонена, тема закрыта.' },
+    complaint: { approve: 'Жалоба одобрена.', deny: 'В жалобе отказано.' },
+    appeal: { approve: 'Обжалование одобрено.', deny: 'В обжаловании отказано.' },
+    app: { approve: 'Заявка одобрена.', deny: 'Заявка отклонена.' },
     bio: { approve: 'Биография одобрена.', deny: 'Биография отклонена.' }
 };
 // разделы, для которых итоговую строку можно задать отдельно
@@ -166,7 +166,7 @@ const DEFAULT_SETTINGS = {
         wall: { kind: 'gen', gen: 'nightroad', seed: 1907 },
         rotate: 'off', // off | visit | hour
         dim: 0.55,
-        blur: 14,
+        blur: 0, // размытие под блоками красиво, но на слабых ПК прокрутка падает в разы
         glass: 0.3, // плотность блоков форума (1 — непрозрачные)
         menuGlass: 0.82, // плотность меню и окон
         perf: 'auto', // auto | quality | fast — см. Perf
@@ -211,7 +211,7 @@ const DEFAULT_SETTINGS = {
     hiddenItems: [], // ответы, скрытые кнопкой «глаз»
     autograph: { style: 'classic', custom: '' },
     threadAge: true, // сколько прошло с создания темы
-    qnav: { on: true, items: [] }, // быстрая навигация в шапке: { id, name, url, group }
+    qnav: { on: true, items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
     stats: true, // анонимная отметка «скрипт запущен» раз в день, видна разработчику как число пользователей
     permCheck: true, // прятать панель в разделах, где нет прав модератора
     openOn: 'hover', // hover — списки открываются при наведении, click — только по нажатию
@@ -261,7 +261,7 @@ const Settings = {
             m.sticky = !!m.sticky;
         }
         const q = s.qnav;
-        if (!q || typeof q !== 'object') s.qnav = { on: true, items: [] };
+        if (!q || typeof q !== 'object') s.qnav = { on: true, items: [], groups: [] };
         else {
             q.on = q.on !== false;
             const str = v => (typeof v === 'string' ? v : '');
@@ -273,6 +273,13 @@ const Settings = {
                     url: str(i.url),
                     group: str(i.group)
                 }));
+            q.groups = [
+                ...new Set(
+                    (Array.isArray(q.groups) ? q.groups : [])
+                        .filter(g => typeof g === 'string' && g.trim())
+                        .map(g => g.trim().slice(0, 24))
+                )
+            ];
         }
         const t = s.answer.tails;
         if (!t || typeof t !== 'object' || Array.isArray(t)) s.answer.tails = {};
@@ -3250,6 +3257,16 @@ const Wallpaper = {
             this._cache.set(key, hit);
             return hit;
         }
+        // готовый фон с прошлой страницы: рисование и сжатие в JPEG занимают ~100 мс на каждом переходе
+        try {
+            const saved = JSON.parse(localStorage.getItem('vd.wallgen') || 'null');
+            if (saved && saved.k === key) {
+                this._cache.set(key, saved.u);
+                return saved.u;
+            }
+        } catch {
+            /* хранилище недоступно */
+        }
         const G = GENERATORS[gen === 'topo' ? 'relief' : gen] || GENERATORS.nightroad;
         const r = rng(seed),
             pal = PALETTES[seed % PALETTES.length];
@@ -3277,6 +3294,13 @@ const Wallpaper = {
         oc.fillText(`${BRAND.name} · ${gen}#${seed}`, w - 14, h - 12);
         const url = out.toDataURL('image/jpeg', 0.9);
         this._cache.set(key, url);
+        // запоминаем только фон страницы (большой размер), превью в настройках не храним
+        if (w >= 1200)
+            try {
+                localStorage.setItem('vd.wallgen', JSON.stringify({ k: key, u: url }));
+            } catch {
+                /* мало места */
+            }
         // большие фоны весят мегабайты, держим последние 24
         while (this._cache.size > 24) this._cache.delete(this._cache.keys().next().value);
         return url;
@@ -4657,7 +4681,8 @@ input, textarea, select { font: inherit; color: var(--tx); }
 /* панель над редактором */
 .bar { margin: 0 0 10px; padding: 12px; border-radius: var(--r); background:
   radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--acc) 14%, transparent), transparent 45%), var(--bg);
-  backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2); box-shadow: 0 10px 30px -14px rgba(0,0,0,.7); display: flex; flex-direction: column; gap: 10px; }
+  /* без backdrop-filter: размытие под панелью пересчитывалось на каждом кадре прокрутки (с 60 до 12 к/с) */
+  box-shadow: 0 10px 30px -14px rgba(0,0,0,.7); display: flex; flex-direction: column; gap: 10px; }
 .bar-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 9px; margin-right: 4px; }
 .brand-mark { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 25%, transparent); }
@@ -4965,7 +4990,7 @@ input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var
 /* уведомления, лаунчер */
 .toasts { position: fixed; z-index: 2147483100; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .toast { display: flex; align-items: center; gap: 10px; padding: 11px 15px 11px 11px; border-radius: 12px; background: color-mix(in srgb, var(--bg-3) calc(var(--ui-alpha, .96) * 100%), transparent); backdrop-filter: blur(22px) saturate(1.3); -webkit-backdrop-filter: blur(22px) saturate(1.3); box-shadow: var(--sh); font-weight: 650; animation: pop .2s var(--ease); max-width: 400px; }
-.launch { position: fixed; z-index: 2147482980; left: 18px; bottom: 18px; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: color-mix(in srgb, var(--acc) 75%, #fff); background: color-mix(in srgb, var(--acc) 8%, rgba(12,13,17,.6)); box-shadow: 0 0 0 1px rgba(255,255,255,.06); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); opacity: .6; transition: opacity .2s, transform .2s var(--ease); }
+.launch { position: fixed; z-index: 2147482980; left: 18px; bottom: 18px; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: color-mix(in srgb, var(--acc) 75%, #fff); background: color-mix(in srgb, var(--acc) 8%, rgba(12,13,17,.88)); box-shadow: 0 0 0 1px rgba(255,255,255,.06); opacity: .6; transition: opacity .2s, transform .2s var(--ease); }
 .launch:hover { opacity: 1; transform: translateY(-1px); }
 
 @media (max-width: 760px) {
@@ -6703,6 +6728,11 @@ const QNAV_PRESETS = [
 ];
 
 const QNav = {
+    // стандартные группы и свои, добавленные в настройках
+    groups() {
+        const own = Settings.get().qnav.groups || [];
+        return [...QNAV_GROUPS, ...own.filter(g => !QNAV_GROUPS.includes(g))];
+    },
     items() {
         return (Settings.get().qnav.items || []).filter(i => i && i.name && i.url && this.safe(i.url));
     },
@@ -8152,7 +8182,7 @@ const SettingsUI = {
         base.appendChild(
             this.row(
                 'Размытие под блоками',
-                '',
+                'Красиво, но заметно тормозит прокрутку на слабых ПК. 0 — выключено',
                 rng(0, 30, 1, t.blur, (x, v) => {
                     x.blur = v;
                 })
@@ -8719,6 +8749,16 @@ const SettingsUI = {
 
 // вкладка «Навигация»: ссылки быстрой навигации
 Object.assign(SettingsUI, {
+    // спросить название и сохранить группу; вернуть название или ''
+    newGroup() {
+        const name = (prompt('Название группы, например: Жалобы КФ') || '').trim().replace(/\s+/g, ' ').slice(0, 24);
+        if (!name || name === '__new') return '';
+        Settings.patch(x => {
+            x.qnav.groups = x.qnav.groups || [];
+            if (!QNav.groups().includes(name)) x.qnav.groups.push(name);
+        });
+        return name;
+    },
     tab_qnav(pane) {
         const cfg = Settings.get().qnav;
         const save = fn => {
@@ -8740,7 +8780,7 @@ Object.assign(SettingsUI, {
             const h = this.card(pane, 'Этот раздел');
             const box = U.h(`<div class="btns" style="align-items:center;padding:10px 0">
                 <input class="inp" style="flex:1;min-width:160px" maxlength="40">
-                <select class="inp" style="width:auto">${['', ...QNAV_GROUPS].map(g => `<option value="${U.esc(g)}">${g ? 'Группа: ' + U.esc(g) : 'Без группы'}</option>`).join('')}</select>
+                <select class="inp" style="width:auto">${['', ...QNav.groups()].map(g => `<option value="${U.esc(g)}">${g ? 'Группа: ' + U.esc(g) : 'Без группы'}</option>`).join('')}</select>
                 <button class="btn pri">${icon('plus', 14)}Добавить</button></div>`);
             const [name, group] = box.querySelectorAll('.inp');
             name.value = here.name;
@@ -8773,7 +8813,7 @@ Object.assign(SettingsUI, {
             const row = U.h(`<div class="qn-row">
                 <input class="inp" data-f="name" maxlength="40" placeholder="Название">
                 <input class="inp${ok ? '' : ' bad'}" data-f="url" placeholder="https://forum.blackrussia.online/forums/…">
-                <select class="inp" data-f="group">${['', ...QNAV_GROUPS].map(g => `<option value="${U.esc(g)}">${g || 'Без группы'}</option>`).join('')}</select>
+                <select class="inp" data-f="group">${['', ...QNav.groups()].map(g => `<option value="${U.esc(g)}">${U.esc(g) || 'Без группы'}</option>`).join('')}<option value="__new">＋ Новая группа…</option></select>
                 <span class="qn-act"><button class="icon-btn" data-a="up" title="Выше">↑</button><button class="icon-btn" data-a="down" title="Ниже">↓</button><button class="icon-btn" data-a="del" title="Удалить">${icon('trash', 14)}</button></span>
             </div>`);
             const f = n => row.querySelector(`[data-f="${n}"]`);
@@ -8796,7 +8836,12 @@ Object.assign(SettingsUI, {
                 f('url').classList.toggle('bad', !v);
                 upd('url', v);
             };
-            f('group').onchange = () => upd('group', f('group').value);
+            f('group').onchange = () => {
+                if (f('group').value !== '__new') return upd('group', f('group').value);
+                const name = this.newGroup();
+                if (name) save(q => (q.items.find(i => i.id === it.id).group = name));
+                else f('group').value = it.group || '';
+            };
             const move = d =>
                 save(q => {
                     const j = idx + d;
@@ -8821,6 +8866,33 @@ Object.assign(SettingsUI, {
         own.onclick = () => save(q => q.items.push({ id: 'q' + U.uid(), name: 'Новая ссылка', url: '', group: '' }));
         btns.appendChild(own);
         list.appendChild(btns);
+
+        // свои группы: «Жалобы КФ», «Мой сервер» — в шапке станут отдельными выпадающими кнопками
+        const gs = this.sec(pane, 'Свои группы');
+        gs.appendChild(
+            U.h(
+                `<div class="muted" style="margin:-4px 0 10px;font-size:11.5px">Ссылки с одной группой собираются в одну кнопку со списком. Группу ссылке выбирают в её строке выше.</div>`
+            )
+        );
+        const gchips = U.h(`<div class="chips"></div>`);
+        (cfg.groups || []).forEach(g => {
+            const n = cfg.items.filter(i => i.group === g).length;
+            const c = U.h(
+                `<span class="pill on">${U.esc(g)}${n ? ` · ${n}` : ''}<button class="icon-btn" title="Удалить группу (ссылки останутся без группы)" style="width:20px;height:20px;margin-left:4px">${icon('x', 11)}</button></span>`
+            );
+            c.querySelector('button').onclick = () =>
+                save(q => {
+                    q.groups = q.groups.filter(x => x !== g);
+                    q.items.forEach(i => {
+                        if (i.group === g) i.group = '';
+                    });
+                });
+            gchips.appendChild(c);
+        });
+        const addG = U.h(`<button class="pill">${icon('plus', 12)}Новая группа</button>`);
+        addG.onclick = () => this.newGroup() && this.draw();
+        gchips.appendChild(addG);
+        gs.appendChild(gchips);
 
         const left = QNAV_PRESETS.filter(([n]) => !cfg.items.some(i => i.name === n));
         if (left.length) {
@@ -9676,6 +9748,13 @@ function boot() {
         Store.set('fontV2', true);
     }
     // старый дефолт плотности 0.78
+    // размытие под блоками было включено по умолчанию и тормозило прокрутку: стандартное значение выключаем
+    if (!Store.get('blurV3', false)) {
+        Settings.patch(x => {
+            if (x.theme.blur === 14) x.theme.blur = 0;
+        });
+        Store.set('blurV3', true);
+    }
     if (!Store.get('glassV2', false)) {
         if (Settings.get().theme.glass === 0.78) Settings.patch(x => (x.theme.glass = 0.3));
         Store.set('glassV2', true);
