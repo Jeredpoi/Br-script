@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.7
+// @version      1.6.8
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.7', // подставляет build.sh из @version
+    version: '1.6.8', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -7081,7 +7081,9 @@ const Age = {
             b.dataset.l = this.level(ms);
             b.title =
                 'С момента создания темы прошло ' + txt.replace('д', ' дн.').replace('ч', ' ч.').replace('м', ' мин.');
-            b.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${txt}`;
+            // кольцо заполняется за двое суток ожидания
+            const pct = Math.max(4, Math.min(100, Math.round((ms / (48 * 3600e3)) * 100)));
+            b.innerHTML = `<svg class="vd-age-ring" viewBox="0 0 20 20"><circle class="bg" cx="10" cy="10" r="7.5"/><circle class="fg" cx="10" cy="10" r="7.5" pathLength="100" stroke-dasharray="${pct} 100"/></svg>${txt}`;
         });
     },
     start() {
@@ -9399,10 +9401,19 @@ const BASE_CSS = `
 #vd-logo-side ~ img { flex: none; max-width: none !important; }
 @media (max-width: 650px) { #vd-logo-side { height: 44px !important; max-width: 38vw !important; } }
 /* сколько прошло с создания темы */
-.vd-age { display: inline-flex !important; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap; vertical-align: middle;
-  color: #8fd19e; background: rgba(47,191,113,.12); border: 1px solid rgba(47,191,113,.28); }
-.vd-age[data-l="warn"] { color: #f5c542; background: rgba(245,197,66,.12); border-color: rgba(245,197,66,.3); }
-.vd-age[data-l="late"] { color: #ff6b6b; background: rgba(229,72,77,.13); border-color: rgba(229,72,77,.35); }
+.vd-age { --c: color-mix(in srgb, var(--vd-acc, #2fbf71) 60%, #ffffff);
+  display: inline-flex !important; align-items: center; gap: 5px; margin-left: 6px; padding: 1px 8px 1px 3px; border-radius: 999px; vertical-align: middle; white-space: nowrap;
+  font: 700 11px/1.55 inherit; letter-spacing: .2px; color: color-mix(in srgb, var(--c) 45%, #fff);
+  background: color-mix(in srgb, var(--vd-block, #1b1d24) 72%, transparent); border: 1px solid color-mix(in srgb, var(--c) 38%, transparent);
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--c) 9%, transparent); transition: color .3s, border-color .3s; }
+.vd-age[data-l="warn"] { --c: color-mix(in srgb, var(--vd-acc, #e5484d) 30%, #f5a524); }
+.vd-age[data-l="late"] { --c: color-mix(in srgb, var(--vd-acc, #e5484d) 35%, #ff4d4f); animation: vd-age-glow 2.6s ease-in-out infinite; }
+@keyframes vd-age-glow { 50% { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--c) 16%, transparent), 0 0 12px -2px color-mix(in srgb, var(--c) 70%, transparent); } }
+.vd-age-ring { width: 15px; height: 15px; transform: rotate(-90deg); flex: none; }
+.vd-age-ring circle { fill: none; stroke-width: 3; }
+.vd-age-ring .bg { stroke: color-mix(in srgb, var(--c) 22%, transparent); }
+.vd-age-ring .fg { stroke: var(--c); stroke-linecap: round; transition: stroke-dasharray .6s ease; }
+@media (prefers-reduced-motion: reduce) { .vd-age[data-l="late"] { animation: none; } }
 .structItem-parts > li.vd-age::before, .listInline--bullet > li.vd-age::before { content: none !important; display: none !important; }
 /* быстрая навигация в шапке */
 #vd-qnav { flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; padding: 0 8px; }
