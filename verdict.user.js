@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.8.0
+// @version      1.8.1
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.8.0', // подставляет build.sh из @version
+    version: '1.8.1', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -211,6 +211,7 @@ const DEFAULT_SETTINGS = {
     hiddenItems: [], // ответы, скрытые кнопкой «глаз»
     autograph: { style: 'classic', custom: '' },
     threadAge: true, // сколько прошло с создания темы
+    nickCopy: true, // ники Имя_Фамилия в постах подсвечены и копируются по клику
     qnav: { on: true, counts: true, items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
     stats: true, // анонимная отметка «скрипт запущен» раз в день, видна разработчику как число пользователей
     permCheck: true, // прятать панель в разделах, где нет прав модератора
@@ -8712,6 +8713,17 @@ const SettingsUI = {
         );
         g.appendChild(
             this.row(
+                'Ники копируются по клику',
+                'Ники вида Имя_Фамилия в постах и заголовке подсвечены, клик копирует ник',
+                this.sw(s.nickCopy, v =>
+                    Settings.patch(x => {
+                        x.nickCopy = v;
+                    })
+                )
+            )
+        );
+        g.appendChild(
+            this.row(
                 'Сколько прошло с создания темы',
                 'Метка рядом с датой: зелёная до 12 ч, жёлтая до 2 дней, потом красная. Закрытые темы без метки',
                 this.sw(s.threadAge, v =>
@@ -9743,6 +9755,89 @@ Object.assign(SettingsUI, {
     }
 });
 
+// ники вида Имя_Фамилия в постах и заголовке темы: подсветка и копирование по клику
+const Nicks = {
+    // латиница, одно подчёркивание; слева и справа не буквы, не цифры и не части ссылок
+    re: /(^|[^A-Za-z0-9_./@#=&?-])([A-Za-z][A-Za-z0-9]{1,23}_[A-Za-z][A-Za-z0-9]{1,23})(?![A-Za-z0-9_@])/g,
+    skip: 'a, code, pre, textarea, input, script, style, [contenteditable], .fr-box, .vd-nick, .bbCodeCode',
+    roots() {
+        return document.querySelectorAll('.message-body .bbWrapper, .message-content .bbWrapper, .p-title-value');
+    },
+    scan() {
+        if (!Settings.get().nickCopy) return;
+        this.roots().forEach(root => {
+            if (root.dataset.vdNicks) return;
+            root.dataset.vdNicks = '1';
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+                acceptNode: n =>
+                    n.nodeValue.includes('_') && !(n.parentElement && n.parentElement.closest(this.skip))
+                        ? NodeFilter.FILTER_ACCEPT
+                        : NodeFilter.FILTER_REJECT
+            });
+            const nodes = [];
+            while (walker.nextNode()) nodes.push(walker.currentNode);
+            nodes.forEach(n => this.wrap(n));
+        });
+    },
+    wrap(node) {
+        const text = node.nodeValue;
+        this.re.lastIndex = 0;
+        let m,
+            last = 0,
+            frag = null;
+        while ((m = this.re.exec(text))) {
+            frag = frag || document.createDocumentFragment();
+            const start = m.index + m[1].length;
+            if (start > last) frag.appendChild(document.createTextNode(text.slice(last, start)));
+            const s = document.createElement('span');
+            s.className = 'vd-nick';
+            s.textContent = m[2];
+            s.title = 'Нажми, чтобы скопировать ник';
+            frag.appendChild(s);
+            last = start + m[2].length;
+        }
+        if (!frag) return;
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        node.replaceWith(frag);
+    },
+    async copy(el) {
+        const nick = el.textContent;
+        try {
+            await navigator.clipboard.writeText(nick);
+        } catch {
+            const ta = document.createElement('textarea');
+            ta.value = nick;
+            ta.style.cssText = 'position:fixed;opacity:0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+        }
+        el.classList.add('done');
+        setTimeout(() => el.classList.remove('done'), 900);
+        toast(`Ник скопирован: ${nick}`);
+    },
+    // выключили в настройках — вернуть обычный текст
+    clear() {
+        document.querySelectorAll('.vd-nick').forEach(s => s.replaceWith(document.createTextNode(s.textContent)));
+        this.roots().forEach(r => {
+            delete r.dataset.vdNicks;
+            r.normalize();
+        });
+    },
+    start() {
+        document.addEventListener('click', e => {
+            const n = e.target.closest && e.target.closest('.vd-nick');
+            if (!n) return;
+            e.preventDefault();
+            e.stopPropagation();
+            this.copy(n);
+        });
+        Bus.on('settings', () => (Settings.get().nickCopy ? this.scan() : this.clear()));
+        this.scan();
+    }
+};
+
 // запуск
 // переименованная шапка = метка «Неофициальная копия»
 const Integrity = {
@@ -9773,6 +9868,11 @@ const BASE_CSS = `
 #vd-logo-side { flex: none; }
 #vd-logo-side ~ img { flex: none; max-width: none !important; }
 @media (max-width: 650px) { #vd-logo-side { height: 44px !important; max-width: 38vw !important; } }
+/* ники Имя_Фамилия: клик копирует */
+.vd-nick { cursor: copy; padding: 0 3px; margin: 0 -1px; border-radius: 4px; color: color-mix(in srgb, var(--vd-acc, #e5484d) 55%, #fff); background: color-mix(in srgb, var(--vd-acc, #e5484d) 13%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--vd-acc, #e5484d) 45%, transparent); transition: background .15s, color .15s; }
+.vd-nick:hover { background: color-mix(in srgb, var(--vd-acc, #e5484d) 26%, transparent); color: #fff; }
+.vd-nick.done { background: rgba(47,191,113,.3); color: #fff; box-shadow: inset 0 -1px 0 #2fbf71; }
 /* сколько прошло с создания темы */
 .vd-age { --c: color-mix(in srgb, var(--vd-acc, #2fbf71) 60%, #ffffff);
   display: inline-flex !important; align-items: center; gap: 5px; margin-left: 6px; padding: 1px 8px 1px 3px; border-radius: 999px; vertical-align: middle; white-space: nowrap;
@@ -10069,6 +10169,7 @@ function boot() {
         QNav.mount();
         Bus.on('settings', () => QNav.mount());
         Age.start();
+        Nicks.start();
         QNav.watchCounts();
         // ответы разработчика на обращения
         setTimeout(() => {
@@ -10082,6 +10183,7 @@ function boot() {
                 mountBars();
                 mountAutograph();
                 Logo.apply();
+                Nicks.scan();
             }, 250)
         );
         mo.observe(document.body, { childList: true, subtree: true });
