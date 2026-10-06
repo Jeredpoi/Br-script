@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.9.0
+// @version      1.9.1
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.9.0', // подставляет build.sh из @version
+    version: '1.9.1', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5133,8 +5133,11 @@ a { transition: color .2s; }
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--vd-acc) 50%, transparent); border-radius: 9px; border: 2px solid transparent; background-clip: content-box; }
 
 /* шапка и навигация */
+/* меню форума, прилипшее при прокрутке: плотный фон, чтобы темы не просвечивали сквозь надписи */
+.p-navSticky.is-sticky { background: color-mix(in srgb, var(--vd-head) 96%, #05060a) !important; box-shadow: 0 10px 24px -12px rgba(0,0,0,.85) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 30%, transparent) !important; }
+.p-navSticky.is-sticky .p-nav, .p-navSticky.is-sticky .p-sectionLinks { background: transparent !important; }
 /* верхняя панель модератора: стекло, линия цвета темы, ссылки-плашки */
-.p-staffBar { background: color-mix(in srgb, var(--vd-head) 82%, transparent) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 35%, transparent) !important; box-shadow: 0 8px 20px -14px rgba(0,0,0,.8); }
+.p-staffBar { background: color-mix(in srgb, var(--vd-head) 97%, #05060a) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 35%, transparent) !important; box-shadow: 0 8px 20px -14px rgba(0,0,0,.8); }
 .p-staffBar-inner { min-height: 38px; }
 .p-staffBar .p-staffBar-link, .p-staffBar a.p-navgroup-link { border-radius: 8px !important; padding: 5px 10px !important; color: #d6d8de !important; transition: background .15s, color .15s; }
 .p-staffBar .p-staffBar-link:hover, .p-staffBar a.p-navgroup-link:hover { background: color-mix(in srgb, var(--vd-acc) 16%, transparent) !important; color: #fff !important; }
@@ -9976,7 +9979,7 @@ const BASE_CSS = `
 /* закреплённая панель сверху: остаётся на месте при прокрутке */
 .p-staffBar.vd-pinned { position: sticky !important; top: 0; z-index: 450; }
 #vd-topbar { position: sticky; top: 0; z-index: 450; height: 38px; display: flex; align-items: center;
-  background: color-mix(in srgb, var(--vd-head, #16181f) 92%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--vd-acc, #e5484d) 35%, transparent); box-shadow: 0 8px 20px -14px rgba(0,0,0,.8); }
+  background: color-mix(in srgb, var(--vd-head, #16181f) 97%, #05060a); border-bottom: 1px solid color-mix(in srgb, var(--vd-acc, #e5484d) 35%, transparent); box-shadow: 0 8px 20px -14px rgba(0,0,0,.8); }
 .vd-topbar-inner { width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 10px; height: 100%; display: flex; align-items: center; min-width: 0; }
 #vd-topbar #vd-qnav { margin-left: 0; padding-left: 0; border-left: 0; }
 /* липкое меню форума встаёт под закреплённую панель */
