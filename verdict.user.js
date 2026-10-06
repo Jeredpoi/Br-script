@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.8.2
+// @version      1.8.3
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.8.2', // подставляет build.sh из @version
+    version: '1.8.3', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5121,7 +5121,9 @@ function forumCss(s) {
   --vd-edge: ${g ? 'linear-gradient(90deg, transparent, color-mix(in srgb, var(--vd-acc) 70%, transparent) 30%, color-mix(in srgb, var(--vd-acc2) 70%, transparent) 70%, transparent)' : 'linear-gradient(90deg, transparent, color-mix(in srgb, var(--vd-acc) 60%, transparent), transparent)'}; }
 #vd-wall::after { content: ""; position: absolute; inset: 0; z-index: 2; background: linear-gradient(180deg, rgba(5,6,9,${Math.min(0.95, t.dim + 0.1)}), rgba(5,6,9,${t.dim}) 30%, rgba(5,6,9,${Math.min(0.95, t.dim + 0.15)})); }
 ${t.grain ? `#vd-wall::before { content: ""; position: absolute; inset: 0; z-index: 3; opacity: .07; background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }` : ''}
-html, body, .p-pageWrapper, .p-body, .p-body-inner, .uix_pageWrapper--fixed, .p-body-main, .p-body-content, .p-body-pageContent { background: transparent !important; }
+/* тёмная подложка под фоном: пока картинка проявляется, не мелькает белое полотно браузера */
+html { background: #07080b !important; }
+body, .p-pageWrapper, .p-body, .p-body-inner, .uix_pageWrapper--fixed, .p-body-main, .p-body-content, .p-body-pageContent { background: transparent !important; }
 body { color: #e4e6eb !important; }
 a { transition: color .2s; }
 ::selection { background: color-mix(in srgb, var(--vd-acc) 45%, transparent); }
@@ -9928,6 +9930,8 @@ const BASE_CSS = `
 .vd-age-ring .fg { stroke: var(--c); stroke-linecap: round; transition: stroke-dasharray .6s ease; }
 @media (prefers-reduced-motion: reduce) { .vd-age[data-l="late"] { animation: none; } }
 .structItem-parts > li.vd-age::before, .listInline--bullet > li.vd-age::before { content: none !important; display: none !important; }
+/* форум разрешает пунктам строки сжиматься (min-width:0): метка не должна ужиматься уже своего текста */
+.vd-age { flex: none !important; min-width: max-content !important; max-width: none !important; overflow: visible !important; text-overflow: clip !important; box-sizing: border-box; }
 /* быстрая навигация в шапке */
 #vd-qnav { flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; padding: 0 8px; }
 .p-nav-inner > .p-nav-scroller { flex: 0 1 auto; }
