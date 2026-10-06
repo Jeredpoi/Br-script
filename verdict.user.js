@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.6.6
+// @version      1.6.7
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.6.6', // подставляет build.sh из @version
+    version: '1.6.7', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -8898,8 +8898,10 @@ const Stats = {
     ping() {
         if (!Settings.get().stats || !Mail.url()) return;
         const today = new Date().toISOString().slice(0, 10);
-        if (Store.get('pingDay', '') === today) return;
+        // раз в день и сразу после обновления, чтобы в таблице была свежая версия
+        if (Store.get('pingDay', '') === today && Store.get('pingV', '') === BRAND.version) return;
         Store.set('pingDay', today);
+        Store.set('pingV', BRAND.version);
         const ua = navigator.userAgent;
         Mail.call({
             action: 'ping',
@@ -9313,9 +9315,9 @@ const Updater = {
         window.open(`${BRAND.update}/verdict.user.js`, '_blank', 'noopener');
         toast('В открывшейся вкладке нажми «Обновить», потом перезагрузи форум', 'info');
     },
-    // уведомление, разосланное разработчиком вручную: спрашиваем почту раз в 20 минут
+    // уведомление, разосланное разработчиком вручную: спрашиваем почту не чаще раза в 5 минут
     async news(force) {
-        if (!Mail.url() || (!force && Date.now() - Store.get('newsChecked', 0) < 20 * 60e3)) return null;
+        if (!Mail.url() || (!force && Date.now() - Store.get('newsChecked', 0) < 5 * 60e3)) return null;
         Store.set('newsChecked', Date.now());
         try {
             const r = await Mail.call({ action: 'news' }).catch(e => {
@@ -9358,9 +9360,11 @@ const Updater = {
         });
     },
     // страница форума бывает открыта часами: проверяем и без перезагрузки
+    // рассылка доходит за ~5 минут: проверяем по таймеру и когда возвращаешься на вкладку форума
     watch() {
         this.notify();
-        setInterval(() => document.hidden || this.notify(), 20 * 60e3);
+        setInterval(() => document.hidden || this.notify(), 5 * 60e3);
+        document.addEventListener('visibilitychange', () => document.hidden || this.notify());
     }
 };
 
