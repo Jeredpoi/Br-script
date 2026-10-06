@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.8.1
+// @version      1.8.2
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.8.1', // подставляет build.sh из @version
+    version: '1.8.2', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -212,7 +212,7 @@ const DEFAULT_SETTINGS = {
     autograph: { style: 'classic', custom: '' },
     threadAge: true, // сколько прошло с создания темы
     nickCopy: true, // ники Имя_Фамилия в постах подсвечены и копируются по клику
-    qnav: { on: true, counts: true, items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
+    qnav: { on: true, counts: true, place: 'nav', items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
     stats: true, // анонимная отметка «скрипт запущен» раз в день, видна разработчику как число пользователей
     permCheck: true, // прятать панель в разделах, где нет прав модератора
     openOn: 'hover', // hover — списки открываются при наведении, click — только по нажатию
@@ -266,6 +266,7 @@ const Settings = {
         else {
             q.on = q.on !== false;
             q.counts = q.counts !== false;
+            if (!['nav', 'staff', 'sub'].includes(q.place)) q.place = 'nav';
             const str = v => (typeof v === 'string' ? v : '');
             q.items = (Array.isArray(q.items) ? q.items : [])
                 .filter(i => i && typeof i === 'object')
@@ -5129,6 +5130,12 @@ a { transition: color .2s; }
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--vd-acc) 50%, transparent); border-radius: 9px; border: 2px solid transparent; background-clip: content-box; }
 
 /* шапка и навигация */
+/* верхняя панель модератора: стекло, линия цвета темы, ссылки-плашки */
+.p-staffBar { background: color-mix(in srgb, var(--vd-head) 82%, transparent) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 35%, transparent) !important; box-shadow: 0 8px 20px -14px rgba(0,0,0,.8); }
+.p-staffBar-inner { min-height: 38px; }
+.p-staffBar .p-staffBar-link, .p-staffBar a.p-navgroup-link { border-radius: 8px !important; padding: 5px 10px !important; color: #d6d8de !important; transition: background .15s, color .15s; }
+.p-staffBar .p-staffBar-link:hover, .p-staffBar a.p-navgroup-link:hover { background: color-mix(in srgb, var(--vd-acc) 16%, transparent) !important; color: #fff !important; }
+.p-staffBar .badge, .p-staffBar .badgeContainer::after { background: var(--vd-acc) !important; color: #fff !important; border-radius: 6px !important; }
 .p-header, .p-nav, .p-sectionLinks, .uix_headerContainer {
   background: ${g ? `linear-gradient(90deg, color-mix(in srgb, var(--vd-head) ${glass}%, transparent), color-mix(in srgb, color-mix(in srgb, var(--vd-head) 80%, var(--vd-acc2)) ${glass}%, transparent))` : `color-mix(in srgb, var(--vd-head) ${glass}%, transparent)`} !important;
   ${blur}
@@ -6824,16 +6831,37 @@ const QNav = {
             if (bar) bar.remove();
             return;
         }
-        const nav = document.querySelector('.p-nav-inner') || document.querySelector('.p-nav');
-        if (!nav) return;
+        const spot = this.spot(cfg.place);
+        if (!spot) return;
+        // место поменяли в настройках — переносим
+        if (bar && bar.dataset.place !== spot.place) {
+            bar.remove();
+            bar = null;
+        }
         if (!bar) {
             bar = document.createElement('div');
             bar.id = 'vd-qnav';
-            const opp = nav.querySelector(':scope > .p-nav-opposite');
-            if (opp) nav.insertBefore(bar, opp);
-            else nav.appendChild(bar);
+            bar.dataset.place = spot.place;
+            bar.className = 'vd-qnav--' + spot.place;
+            if (spot.before) spot.host.insertBefore(bar, spot.before);
+            else spot.host.appendChild(bar);
         }
         this.render(bar);
+    },
+    // где стоит панель: главное меню, верхняя панель модератора или строка под меню
+    PLACES: { nav: 'В главном меню', staff: 'В верхней панели модератора', sub: 'В строке под меню' },
+    spot(place) {
+        if (place === 'staff') {
+            const host = document.querySelector('.p-staffBar-inner');
+            if (host) return { place, host };
+        }
+        if (place === 'sub') {
+            const host = document.querySelector('.p-sectionLinks-inner');
+            if (host) return { place, host };
+        }
+        const nav = document.querySelector('.p-nav-inner') || document.querySelector('.p-nav');
+        if (!nav) return null;
+        return { place: 'nav', host: nav, before: nav.querySelector(':scope > .p-nav-opposite') };
     },
     render(bar) {
         const items = this.items();
@@ -8906,6 +8934,18 @@ Object.assign(SettingsUI, {
                 this.sw(cfg.on, v => save(q => (q.on = v)))
             )
         );
+        const places = Object.entries(QNav.PLACES)
+            .filter(([k]) => k === 'nav' || QNav.spot(k).place === k)
+            .map(([k]) => k);
+        top.appendChild(
+            this.row(
+                'Где показывать',
+                places.length < 3
+                    ? 'На этой странице нет некоторых панелей (панель модератора видна только с правами), тогда кнопки встанут в главное меню'
+                    : 'Можно перенести в верхнюю панель модератора или в строку под меню',
+                this.select(QNav.PLACES, cfg.place, v => save(q => (q.place = v)))
+            )
+        );
         top.appendChild(
             this.row(
                 'Счётчики тем',
@@ -9901,6 +9941,12 @@ const BASE_CSS = `
 .vd-qn-arr:hover { background: color-mix(in srgb, var(--vd-acc, #e5484d) 40%, transparent); }
 .vd-qn-arr[hidden] { display: none; }
 @media (max-width: 650px) { #vd-qnav { display: none; } }
+/* в верхней панели модератора и в строке под меню кнопки компактнее */
+#vd-qnav.vd-qnav--staff, #vd-qnav.vd-qnav--sub { margin-left: 10px; padding: 0 0 0 12px; border-left: 1px solid rgba(255,255,255,.12); align-self: stretch; }
+.vd-qnav--staff .vd-qn, .vd-qnav--sub .vd-qn { height: 24px; padding: 0 9px; border-radius: 7px; font-size: 11.5px; gap: 5px; }
+.vd-qnav--staff .vd-qn-arr, .vd-qnav--sub .vd-qn-arr { width: 22px; height: 22px; font-size: 15px; }
+.vd-qnav--staff .vd-qn-n, .vd-qnav--sub .vd-qn-n { height: 14px; min-width: 14px; font-size: 9.5px; }
+.p-staffBar-inner, .p-sectionLinks-inner { display: flex; align-items: center; }
 .vd-qn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 9px; font: 600 12.5px/1 inherit; color: #d6d8de !important; text-decoration: none !important; white-space: nowrap; cursor: pointer;
   background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); transition: background .15s, border-color .15s, color .15s; }
 .vd-qn:hover, .vd-qn.open { color: #fff !important; background: color-mix(in srgb, var(--vd-acc, #e5484d) 18%, transparent); border-color: color-mix(in srgb, var(--vd-acc, #e5484d) 45%, transparent); }
