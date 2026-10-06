@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.8.3
+// @version      1.8.4
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.8.3', // подставляет build.sh из @version
+    version: '1.8.4', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -7261,8 +7261,8 @@ const Age = {
             if (b.dataset.t === txt) return;
             b.dataset.t = txt;
             b.dataset.l = this.level(ms);
-            b.title =
-                'С момента создания темы прошло ' + txt.replace('д', ' дн.').replace('ч', ' ч.').replace('м', ' мин.');
+            const lvl = { ok: 'свежая', warn: 'ждёт больше 12 часов', late: 'ждёт больше 2 суток' }[b.dataset.l];
+            b.title = `С создания темы прошло ${txt} — ${lvl}. Кольцо заполняется за двое суток ожидания`;
             // кольцо заполняется за двое суток ожидания
             const pct = Math.max(4, Math.min(100, Math.round((ms / (48 * 3600e3)) * 100)));
             b.innerHTML = `<svg class="vd-age-ring" viewBox="0 0 20 20"><circle class="bg" cx="10" cy="10" r="7.5"/><circle class="fg" cx="10" cy="10" r="7.5" pathLength="100" stroke-dasharray="${pct} 100"/></svg>${txt}`;
