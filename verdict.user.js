@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.9.3
+// @version      1.9.4
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.9.3', // подставляет build.sh из @version
+    version: '1.9.4', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5135,8 +5135,8 @@ a { transition: color .2s; }
 
 /* шапка и навигация */
 /* меню форума, прилипшее при прокрутке: плотный фон, чтобы темы не просвечивали сквозь надписи */
-.p-navSticky.is-sticky { background: color-mix(in srgb, var(--vd-head) 96%, #05060a) !important; box-shadow: 0 10px 24px -12px rgba(0,0,0,.85) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 30%, transparent) !important; }
-.p-navSticky.is-sticky .p-nav, .p-navSticky.is-sticky .p-sectionLinks { background: transparent !important; }
+.p-navSticky.is-sticky, .vd-stuck { background: color-mix(in srgb, var(--vd-head) 96%, #05060a) !important; box-shadow: 0 10px 24px -12px rgba(0,0,0,.85) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 30%, transparent) !important; }
+.p-navSticky.is-sticky .p-nav, .p-navSticky.is-sticky .p-sectionLinks, .vd-stuck .p-nav, .vd-stuck .p-sectionLinks { background: transparent !important; }
 /* верхняя панель модератора: стекло, линия цвета темы, ссылки-плашки */
 .p-staffBar { background: color-mix(in srgb, var(--vd-head) 97%, #05060a) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 35%, transparent) !important; box-shadow: 0 8px 20px -14px rgba(0,0,0,.8); }
 .p-staffBar-inner { min-height: 38px; }
@@ -10022,7 +10022,7 @@ const BASE_CSS = `
 .vd-topbar-inner { width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 10px; height: 100%; display: flex; align-items: center; min-width: 0; }
 #vd-topbar #vd-qnav { margin-left: 0; padding-left: 0; border-left: 0; }
 /* липкое меню форума встаёт под закреплённую панель */
-@media (min-width: 651px) { html.vd-toppin .p-navSticky.is-sticky, html.vd-toppin .p-navSticky--all.is-sticky { top: var(--vd-top-h, 38px) !important; } }
+@media (min-width: 651px) { html.vd-toppin .p-navSticky, html.vd-toppin .uix_stickyBar { top: var(--vd-top-h, 38px) !important; } }
 @media (max-width: 650px) { #vd-topbar { display: none; } }
 .vd-qn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 9px; font: 600 12.5px/1 inherit; color: #d6d8de !important; text-decoration: none !important; white-space: nowrap; cursor: pointer;
   background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); transition: background .15s, border-color .15s, color .15s; }
@@ -10252,6 +10252,29 @@ function mountBars() {
     });
 }
 
+// прилипшее меню форума: на этом форуме оно липнет через CSS без класса is-sticky,
+// поэтому сами отмечаем момент прилипания, чтобы дать ему плотный фон
+const Stuck = {
+    els() {
+        return [...document.querySelectorAll('.p-navSticky, .uix_stickyBar')].filter(e =>
+            /sticky|fixed/.test(getComputedStyle(e).position)
+        );
+    },
+    check() {
+        this._raf = 0;
+        const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--vd-top-h')) || 0;
+        this._els.forEach(e => e.classList.toggle('vd-stuck', scrollY > 0 && e.getBoundingClientRect().top <= top + 1));
+    },
+    start() {
+        this._els = this.els();
+        if (!this._els.length) return;
+        addEventListener('scroll', () => this._raf || (this._raf = requestAnimationFrame(() => this.check())), {
+            passive: true
+        });
+        this.check();
+    }
+};
+
 function boot() {
     Access.migrate();
     Perf.probe(() => {
@@ -10298,6 +10321,7 @@ function boot() {
         QNav.mount();
         Bus.on('settings', () => QNav.mount());
         Age.start();
+        Stuck.start();
         Nicks.start();
         QNav.watchCounts();
         // ответы разработчика на обращения
