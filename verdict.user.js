@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.9.4
+// @version      1.9.5
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.9.4', // подставляет build.sh из @version
+    version: '1.9.5', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5129,7 +5129,8 @@ body, .p-pageWrapper, .p-body, .p-body-inner, .uix_pageWrapper--fixed, .p-body-m
 body { color: #e4e6eb !important; }
 a { transition: color .2s; }
 ::selection { background: color-mix(in srgb, var(--vd-acc) 45%, transparent); }
-* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 55%, transparent) transparent; }
+/* на html: свойства наследуются, а правило «*» пересчитывалось бы для каждого элемента страницы */
+html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 55%, transparent) transparent; }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--vd-acc) 50%, transparent); border-radius: 9px; border: 2px solid transparent; background-clip: content-box; }
 
@@ -5292,6 +5293,21 @@ ${
 `;
 }
 
+// один разобранный лист стилей на все теневые корни (панели, окно настроек, автограф), а не копия в каждом
+let uiSheet = null;
+function uiStyles(root) {
+    try {
+        if (!uiSheet) {
+            uiSheet = new CSSStyleSheet();
+            uiSheet.replaceSync(UI_CSS);
+        }
+        root.adoptedStyleSheets = [uiSheet];
+        return '';
+    } catch {
+        return `<style>${UI_CSS}</style>`;
+    }
+}
+
 // интерфейс
 // общий shadow root для попапов, модалок и тостов
 const Layer = {
@@ -5302,7 +5318,7 @@ const Layer = {
         host.id = 'vd-layer';
         document.documentElement.appendChild(host);
         this._root = host.attachShadow({ mode: 'open' });
-        this._root.innerHTML = `<style>${UI_CSS}</style><div class="v-root"><div class="toasts"></div></div>`;
+        this._root.innerHTML = `${uiStyles(this._root)}<div class="v-root"><div class="toasts"></div></div>`;
         applyAccent(this._root.querySelector('.v-root'));
         return this._root;
     },
@@ -5733,10 +5749,11 @@ class ReplyBar {
         (anchor ? anchor.parentNode : this.form).insertBefore(host, anchor || this.form.firstChild);
         this.host = host;
         this.shadow = host.attachShadow({ mode: 'open' });
-        this.shadow.innerHTML = `<style>${UI_CSS}</style><div class="v-root"></div>`;
+        this.shadow.innerHTML = `${uiStyles(this.shadow)}<div class="v-root"></div>`;
         this.root = this.shadow.querySelector('.v-root');
         applyAccent(this.root);
-        this.matchEditor();
+        // после отрисовки: чтение стилей до неё заставляло браузер пересчитать всю страницу раньше времени
+        requestAnimationFrame(() => this.matchEditor());
         this.analysis = Analyzer.run(this.packs());
         const isBio = this.packs().some(p => p.kind === 'bio') || /биограф/i.test(Page.crumbs() + ' ' + Page.title());
         this.bio = isBio ? BioCheck.run() : null;
@@ -6510,7 +6527,7 @@ class AutographBar {
         host.className = 'vd-bar-host';
         (anchor ? anchor.parentNode : form).insertBefore(host, anchor || form.firstChild);
         const shadow = host.attachShadow({ mode: 'open' });
-        shadow.innerHTML = `<style>${UI_CSS}</style><div class="v-root"></div>`;
+        shadow.innerHTML = `${uiStyles(shadow)}<div class="v-root"></div>`;
         this.root = shadow.querySelector('.v-root');
         applyAccent(this.root);
         Bus.on('settings', () => this.render());
@@ -9986,8 +10003,7 @@ const BASE_CSS = `
   background: color-mix(in srgb, var(--vd-block, #1b1d24) 72%, transparent); border: 1px solid color-mix(in srgb, var(--c) 38%, transparent);
   box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--c) 9%, transparent); transition: color .3s, border-color .3s; }
 .vd-age[data-l="warn"] { --c: color-mix(in srgb, var(--vd-acc, #e5484d) 30%, #f5a524); }
-.vd-age[data-l="late"] { --c: color-mix(in srgb, var(--vd-acc, #e5484d) 35%, #ff4d4f); animation: vd-age-glow 2.6s ease-in-out infinite; }
-@keyframes vd-age-glow { 50% { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--c) 16%, transparent), 0 0 12px -2px color-mix(in srgb, var(--c) 70%, transparent); } }
+.vd-age[data-l="late"] { --c: color-mix(in srgb, var(--vd-acc, #e5484d) 35%, #ff4d4f); box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--c) 14%, transparent), 0 0 10px -3px color-mix(in srgb, var(--c) 65%, transparent); }
 .vd-age-ring { width: 15px; height: 15px; transform: rotate(-90deg); flex: none; }
 .vd-age-ring circle { fill: none; stroke-width: 3; }
 .vd-age-ring .bg { stroke: color-mix(in srgb, var(--c) 22%, transparent); }
@@ -10131,7 +10147,11 @@ const Theme = {
                     Store.get('photos', []).find(p => p.id === w.id && p.scene);
                 if (scene && !Fx.reduced()) this.setScene(scene);
                 else if (G && G.live && !Fx.reduced()) this.setLive(w.seed);
-                else this.setImage(Wallpaper.current());
+                // фон рисуется после первой отрисовки страницы: генерация (~200 мс при первом заходе) не задерживает форум
+                else
+                    requestAnimationFrame(() =>
+                        setTimeout(() => this.lastKey === key && this.setImage(Wallpaper.current()), 0)
+                    );
             }
             Fx.sync();
         };
@@ -10320,10 +10340,17 @@ function boot() {
         Logo.apply();
         QNav.mount();
         Bus.on('settings', () => QNav.mount());
-        Age.start();
         Stuck.start();
-        Nicks.start();
-        QNav.watchCounts();
+        // не срочное — когда браузер свободен, чтобы страница стала отзывчивой быстрее
+        const idle = window.requestIdleCallback || (f => setTimeout(f, 200));
+        idle(
+            () => {
+                Age.start();
+                Nicks.start();
+                QNav.watchCounts();
+            },
+            { timeout: 1500 }
+        );
         // ответы разработчика на обращения
         setTimeout(() => {
             Feedback.notify();
