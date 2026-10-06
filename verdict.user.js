@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.7.1
+// @version      1.8.0
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.7.1', // подставляет build.sh из @version
+    version: '1.8.0', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -211,7 +211,7 @@ const DEFAULT_SETTINGS = {
     hiddenItems: [], // ответы, скрытые кнопкой «глаз»
     autograph: { style: 'classic', custom: '' },
     threadAge: true, // сколько прошло с создания темы
-    qnav: { on: true, items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
+    qnav: { on: true, counts: true, items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
     stats: true, // анонимная отметка «скрипт запущен» раз в день, видна разработчику как число пользователей
     permCheck: true, // прятать панель в разделах, где нет прав модератора
     openOn: 'hover', // hover — списки открываются при наведении, click — только по нажатию
@@ -264,6 +264,7 @@ const Settings = {
         if (!q || typeof q !== 'object') s.qnav = { on: true, items: [], groups: [] };
         else {
             q.on = q.on !== false;
+            q.counts = q.counts !== false;
             const str = v => (typeof v === 'string' ? v : '');
             q.items = (Array.isArray(q.items) ? q.items : [])
                 .filter(i => i && typeof i === 'object')
@@ -508,7 +509,14 @@ function icon(name, size = 16) {
         '--vd-link'
     ].forEach(name => {
         try {
-            CSS.registerProperty({ name, syntax: '<color>', inherits: true, initialValue: 'transparent' });
+            // начальные значения как у стандартной темы: при выключенной теме var(--vd-acc, …) иначе давал прозрачный цвет
+            const init = {
+                '--vd-block': '#16181f',
+                '--vd-head': '#16181f',
+                '--vd-border': '#2a2d36',
+                '--vd-link': '#7cb7ff'
+            };
+            CSS.registerProperty({ name, syntax: '<color>', inherits: true, initialValue: init[name] || '#e5484d' });
         } catch {
             /* ignore */
         }
@@ -2491,6 +2499,7 @@ const Status = {
         const bb = Answer.build(item, ctx);
         await this.reply(bb);
         Usage.bump(item.id);
+        MyStats.add(item, ctx);
         // ответ уже в теме: ошибка статуса не должна выглядеть как неудачная отправка
         let statusError = null;
         if (Settings.get().status.apply && item.verdict !== 'none')
@@ -4795,6 +4804,24 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .bbp-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 3px; }
 @media (max-width: 760px) { .bbpop { flex-wrap: wrap; white-space: normal; max-width: 100%; } }
 .upd-card.on { border-color: color-mix(in srgb, var(--acc) 55%, transparent); background: color-mix(in srgb, var(--acc) 10%, transparent); }
+.ms-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+.ms-kpi { padding: 14px; border-radius: var(--r); background: color-mix(in srgb, var(--acc) 7%, var(--bg-3, rgba(255,255,255,.03))); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.ms-kpi span { font-size: 11px; color: var(--tx-3); text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+.ms-kpi b { font-size: 28px; line-height: 1.1; color: color-mix(in srgb, var(--acc) 55%, #fff); }
+.ms-kpi small { font-size: 11px; color: var(--tx-3); min-height: 14px; }
+.ms-chart { display: flex; align-items: flex-end; gap: 3px; height: 150px; padding: 12px 12px 6px; }
+.ms-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; min-width: 0; }
+.ms-col i { width: 100%; min-height: 2px; border-radius: 4px 4px 1px 1px; background: linear-gradient(180deg, color-mix(in srgb, var(--acc) 80%, #fff), var(--acc)); opacity: .85; }
+.ms-col:hover i { opacity: 1; }
+.ms-col span { font-size: 9px; color: var(--tx-3); }
+.ms-list { padding: 12px 14px; }
+.ms-h { font-size: 11px; font-weight: 750; color: var(--tx-3); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px; }
+.ms-bar { display: grid; grid-template-columns: minmax(90px, 40%) 1fr 34px; gap: 8px; align-items: center; padding: 4px 0; font-size: 12.5px; }
+.ms-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-bar div { height: 8px; border-radius: 4px; background: rgba(255,255,255,.06); overflow: hidden; }
+.ms-bar i { display: block; height: 100%; border-radius: 4px; }
+.ms-bar b { text-align: right; }
+@media (max-width: 760px) { .ms-kpis { grid-template-columns: repeat(2, 1fr); } .ms-col span { display: none; } }
 .tl-list { padding: 4px 14px; }
 .tl-row { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: center; padding: 6px 0; }
 .tl-v { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12.5px; color: var(--c); min-width: 0; }
@@ -6000,6 +6027,8 @@ class ReplyBar {
         }
         Editor.insert(this.form, Answer.build(item, this.ctx()));
         Usage.bump(item.id);
+        // засчитаем в статистику, когда ответ действительно уйдёт
+        this.lastItem = { item, ctx: this.ctx() };
         this.pending = Settings.get().status.apply && Settings.get().status.map[item.verdict] ? item.verdict : null;
         this.pendingOpen = Packs.keepsOpen(item);
         this.renderHints();
@@ -6030,9 +6059,17 @@ class ReplyBar {
         };
         const ok = data => data && data.status !== 'error' && !data.errors;
         // sent: true/false по ответу форума, null пока не пришёл
+        const counted = () => {
+            if (!this.lastItem) return;
+            MyStats.add(this.lastItem.item, this.lastItem.ctx);
+            this.lastItem = null;
+        };
         const result = data => {
             this.sent = ok(data);
-            if (this.sent) after();
+            if (this.sent) {
+                counted();
+                after();
+            }
         };
         // XF 2.2 шлёт jQuery-событие, 2.3 обычное
         const $ = W.jQuery;
@@ -6041,12 +6078,15 @@ class ReplyBar {
         // запасной признак успеха: форум очищает поле ввода после отправки;
         // не очистилось (ошибка, короткий ответ) = статус не трогаем
         this.form.addEventListener('submit', () => {
-            if (!this.pending) return;
+            if (!this.pending && !this.lastItem) return;
             this.sent = null;
             let tries = 0;
             const check = () => {
-                if (!this.pending || this.sent === false) return;
-                if (Editor.isEmpty(this.form)) return after();
+                if ((!this.pending && !this.lastItem) || this.sent === false) return;
+                if (Editor.isEmpty(this.form)) {
+                    counted();
+                    return after();
+                }
                 if (++tries < 16) setTimeout(check, 500);
             };
             setTimeout(check, 700);
@@ -6822,7 +6862,7 @@ const QNav = {
                 const b = document.createElement('button');
                 b.type = 'button';
                 b.className = 'vd-qn' + (on ? ' on' : '');
-                b.innerHTML = `${U.esc(p.group)}<span class="vd-qn-n">${list.length}</span><span class="vd-qn-car">▾</span>`;
+                b.innerHTML = `${U.esc(p.group)}${this.badge(list)}<span class="vd-qn-car">▾</span>`;
                 b.onclick = e => {
                     e.stopPropagation();
                     this.menu(b, list);
@@ -6833,6 +6873,7 @@ const QNav = {
                 a.className = 'vd-qn' + (this.active(p.url) ? ' on' : '');
                 a.href = new URL(p.url, location.origin).href;
                 a.textContent = p.name;
+                a.insertAdjacentHTML('beforeend', this.badge([p]));
                 track.appendChild(a);
             }
         });
@@ -6899,6 +6940,81 @@ const QNav = {
         else if (on && on.offsetLeft + on.offsetWidth > track.clientWidth) track.scrollLeft = on.offsetLeft - 24;
         sync();
     },
+    // сколько открытых тем ждёт в разделе: первая страница раздела, раз в 5 минут
+    COUNT_TTL: 5 * 60e3,
+    badge(list) {
+        if (!Settings.get().qnav.counts) return '';
+        const c = Store.get('qncount', {}) || {};
+        let n = 0,
+            more = false,
+            known = false;
+        list.forEach(i => {
+            const x = c[this.path(i.url)];
+            if (!x) return;
+            known = true;
+            n += x.n;
+            more = more || x.more;
+        });
+        if (!known) return '';
+        const t = n + (more ? '+' : '');
+        return `<span class="vd-qn-n${n ? ' hot' : ''}" title="Открытых тем, ждут ответа: ${t}">${t}</span>`;
+    },
+    // открытые и не закреплённые темы на странице списка
+    countIn(doc) {
+        const rows = [...doc.querySelectorAll('.structItem--thread')].filter(
+            r =>
+                !r.closest('.structItemContainer-group--sticky') &&
+                !r.classList.contains('structItem--sticky') &&
+                !r.querySelector('.structItem-status--locked, .structItem-status--sticky')
+        );
+        const all = doc.querySelectorAll(
+            '.structItemContainer-group:not(.structItemContainer-group--sticky) .structItem--thread, .js-threadList .structItem--thread'
+        ).length;
+        const paged = !!doc.querySelector('.pageNav-page:not(.pageNav-page--current), .pageNav-jump--next');
+        // все темы первой страницы открыты, а страниц больше — значит, открытых ещё больше
+        return { n: rows.length, more: paged && rows.length > 0 && rows.length >= all, at: Date.now() };
+    },
+    async refreshCounts() {
+        if (!Settings.get().qnav.counts || this._counting || document.hidden) return;
+        this._counting = true;
+        try {
+            const c = Object.assign({}, Store.get('qncount', {}) || {});
+            const paths = [...new Set(this.items().map(i => this.path(i.url)))].filter(p => /\/forums\//.test(p));
+            // текущий раздел считаем прямо со страницы
+            const herePath = this.here() && this.path(this.here().url);
+            if (herePath && paths.includes(herePath) && document.querySelector('.structItem--thread'))
+                c[herePath] = this.countIn(document);
+            let changed = !!herePath;
+            for (const p of paths.slice(0, 12)) {
+                if (c[p] && Date.now() - c[p].at < this.COUNT_TTL) continue;
+                try {
+                    const r = await fetch(location.origin + p, { credentials: 'same-origin' });
+                    if (!r.ok) continue;
+                    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+                    c[p] = this.countIn(doc);
+                    changed = true;
+                } catch {
+                    /* нет сети — попробуем в следующий раз */
+                }
+            }
+            // чужие и удалённые разделы не храним
+            Object.keys(c).forEach(k => paths.includes(k) || delete c[k]);
+            if (changed) {
+                Store.set('qncount', c);
+                const bar = document.getElementById('vd-qnav');
+                if (bar) this.render(bar);
+            }
+        } finally {
+            this._counting = false;
+        }
+    },
+    watchCounts() {
+        if (this._cw) return;
+        this._cw = true;
+        setTimeout(() => this.refreshCounts(), 1500);
+        setInterval(() => this.refreshCounts(), this.COUNT_TTL);
+        document.addEventListener('visibilitychange', () => this.refreshCounts());
+    },
     menu(anchor, list) {
         this.close();
         const m = document.createElement('div');
@@ -6907,6 +7023,7 @@ const QNav = {
             const a = document.createElement('a');
             a.href = new URL(i.url, location.origin).href;
             a.textContent = i.name;
+            a.insertAdjacentHTML('beforeend', this.badge([i]));
             if (this.active(i.url)) a.className = 'on';
             m.appendChild(a);
         });
@@ -7138,6 +7255,7 @@ const SETTINGS_TABS = [
     ['theme', 'image', 'Фоны и прозрачность', 'Фон, прозрачность, погода'],
     ['status', 'lock', 'Статусы и поведение', 'Префиксы, подсказки, горячие клавиши'],
     ['qnav', 'forward', 'Навигация', 'Быстрые кнопки разделов в шапке форума'],
+    ['mystats', 'bolt', 'Моя статистика', 'Сколько ответов ты дал: по дням, вердиктам и разделам'],
     ['autograph', 'pen', 'Автограф', 'Подпись на стене профиля: стиль и свой текст'],
     ['contact', 'chat', 'Связь с разработчиком', 'Идеи, ошибки и свои шаблоны'],
     ['about', 'shield', 'О скрипте', 'Приватность и защита авторства']
@@ -8776,6 +8894,16 @@ Object.assign(SettingsUI, {
                 this.sw(cfg.on, v => save(q => (q.on = v)))
             )
         );
+        top.appendChild(
+            this.row(
+                'Счётчики тем',
+                'Сколько открытых тем ждёт ответа в разделе. Обновляется раз в 5 минут',
+                this.sw(cfg.counts, v => {
+                    save(q => (q.counts = v));
+                    if (v) QNav.refreshCounts();
+                })
+            )
+        );
 
         // текущий раздел форума одной кнопкой
         const here = QNav.here();
@@ -9449,6 +9577,172 @@ const Updater = {
     }
 };
 
+// личная статистика: сколько ответов дал, по дням, вердиктам и разделам; хранится только у себя
+const MyStats = {
+    day(d = new Date()) {
+        const p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    },
+    data() {
+        const d = Store.get('mystats', null);
+        return d && typeof d === 'object' && d.days ? d : { days: {} };
+    },
+    // один отправленный ответ
+    add(item, ctx = {}) {
+        if (!item || !item.verdict) return;
+        const found = item.id && Packs.item(item.id);
+        const sec = (found && found.pack.name) || ctx.section || 'Другое';
+        const d = this.data();
+        const k = this.day();
+        const t = d.days[k] || (d.days[k] = { n: 0, v: {}, s: {} });
+        t.n++;
+        t.v[item.verdict] = (t.v[item.verdict] || 0) + 1;
+        t.s[sec] = (t.s[sec] || 0) + 1;
+        // держим полгода
+        const keys = Object.keys(d.days).sort();
+        while (keys.length > 190) delete d.days[keys.shift()];
+        Store.set('mystats', d);
+    },
+    // сумма за последние n дней (0 — за всё время)
+    sum(n) {
+        const days = this.data().days;
+        const from = n ? this.day(new Date(Date.now() - (n - 1) * 86400e3)) : '';
+        const out = { n: 0, v: {}, s: {}, active: 0 };
+        Object.entries(days).forEach(([k, t]) => {
+            if (k < from) return;
+            out.n += t.n;
+            if (t.n) out.active++;
+            Object.entries(t.v || {}).forEach(([x, c]) => (out.v[x] = (out.v[x] || 0) + c));
+            Object.entries(t.s || {}).forEach(([x, c]) => (out.s[x] = (out.s[x] || 0) + c));
+        });
+        return out;
+    },
+    series(n) {
+        const days = this.data().days;
+        return Array.from({ length: n }, (_, i) => {
+            const d = new Date(Date.now() - (n - 1 - i) * 86400e3);
+            return { d, n: (days[this.day(d)] || {}).n || 0 };
+        });
+    },
+    // текст для отчёта куратору
+    report(n) {
+        const s = this.sum(n);
+        const v = VERDICT_ORDER.filter(x => s.v[x]).map(x => `${VERDICTS[x].label}: ${s.v[x]}`);
+        const sec = Object.entries(s.s)
+            .sort((a, b) => b[1] - a[1])
+            .map(([k, c]) => `${k}: ${c}`);
+        const who = Page.me() || '';
+        return [
+            `Отчёт ${who ? who + ' ' : ''}за ${n === 1 ? 'сегодня' : n + ' дн.'} (${new Date().toLocaleDateString('ru-RU')})`,
+            `Всего ответов: ${s.n}`,
+            v.length ? 'По вердиктам: ' + v.join(', ') : '',
+            sec.length ? 'По разделам: ' + sec.join(', ') : ''
+        ]
+            .filter(Boolean)
+            .join('\n');
+    }
+};
+
+Object.assign(SettingsUI, {
+    tab_mystats(pane) {
+        const box = U.h(`<div class="ms"></div>`);
+        pane.appendChild(box);
+        const today = MyStats.sum(1),
+            week = MyStats.sum(7),
+            month = MyStats.sum(30),
+            all = MyStats.sum(0);
+        const kpi = (t, s, extra = '') =>
+            `<div class="ms-kpi"><span>${t}</span><b>${s.n}</b><small>${extra}</small></div>`;
+        box.innerHTML = `<div class="ms-kpis">
+            ${kpi('Сегодня', today)}
+            ${kpi('7 дней', week, week.active ? `~${Math.round(week.n / week.active)} в рабочий день` : '')}
+            ${kpi('30 дней', month, `${month.active} дн. с ответами`)}
+            ${kpi('Всего', all)}
+          </div>`;
+        // столбики за 30 дней
+        const ser = MyStats.series(30);
+        const max = Math.max(1, ...ser.map(x => x.n));
+        const chart = this.sec(pane, 'Ответы по дням');
+        chart.appendChild(
+            U.h(
+                `<div class="card ms-chart">${ser
+                    .map(
+                        x =>
+                            `<div class="ms-col" title="${x.d.toLocaleDateString('ru-RU')}: ${x.n}"><i style="height:${Math.round((x.n / max) * 100)}%"></i><span>${x.d.getDate()}</span></div>`
+                    )
+                    .join('')}</div>`
+            )
+        );
+        // вердикты и разделы за выбранный период
+        let period = this._msPeriod || 7;
+        const det = this.sec(pane, 'Разбивка');
+        const seg = U.h(
+            `<div class="seg" style="margin-bottom:12px">${[
+                [1, 'Сегодня'],
+                [7, '7 дней'],
+                [30, '30 дней'],
+                [0, 'Всё время']
+            ]
+                .map(([n, t]) => `<button data-p="${n}" class="${n === period ? 'on' : ''}">${t}</button>`)
+                .join('')}</div>`
+        );
+        det.appendChild(seg);
+        const body = U.h(`<div class="split"></div>`);
+        det.appendChild(body);
+        const bars = (rows, color) => {
+            const m = Math.max(1, ...rows.map(r => r[1]));
+            return rows.length
+                ? rows
+                      .map(
+                          ([name, c, col]) =>
+                              `<div class="ms-bar"><span>${U.esc(name)}</span><div><i style="width:${Math.round((c / m) * 100)}%;background:${col || color}"></i></div><b>${c}</b></div>`
+                      )
+                      .join('')
+                : '<div class="muted" style="padding:8px 0">Пока пусто</div>';
+        };
+        const draw = () => {
+            const s = MyStats.sum(period);
+            const vr = VERDICT_ORDER.filter(x => s.v[x]).map(x => [VERDICTS[x].label, s.v[x], VERDICTS[x].color]);
+            const sr = Object.entries(s.s).sort((a, b) => b[1] - a[1]);
+            body.innerHTML = `<div class="card ms-list"><div class="ms-h">Вердикты</div>${bars(vr)}</div>
+                <div class="card ms-list"><div class="ms-h">Разделы</div>${bars(sr, 'var(--acc)')}</div>`;
+        };
+        seg.querySelectorAll('[data-p]').forEach(
+            b =>
+                (b.onclick = () => {
+                    period = this._msPeriod = +b.dataset.p;
+                    seg.querySelectorAll('[data-p]').forEach(x => x.classList.toggle('on', x === b));
+                    draw();
+                })
+        );
+        draw();
+        const act = U.h(`<div class="btns" style="margin-top:14px"></div>`);
+        const copy = U.h(`<button class="btn pri">${icon('download', 14)}Скопировать отчёт</button>`);
+        copy.onclick = async () => {
+            const text = MyStats.report(period || 30);
+            try {
+                await navigator.clipboard.writeText(text);
+                toast('Отчёт скопирован');
+            } catch {
+                prompt('Скопируй отчёт', text);
+            }
+        };
+        const reset = U.h(`<button class="btn ghost">${icon('trash', 14)}Сбросить</button>`);
+        reset.onclick = () => {
+            if (!confirm('Удалить всю свою статистику ответов?')) return;
+            Store.set('mystats', null);
+            this.draw();
+        };
+        act.append(copy, reset);
+        det.appendChild(act);
+        det.appendChild(
+            U.h(
+                `<div class="muted" style="margin-top:10px;font-size:11.5px">Считаются ответы, отправленные через панель VERDICT. Статистика хранится только в твоём браузере и никуда не отправляется.</div>`
+            )
+        );
+    }
+});
+
 // запуск
 // переименованная шапка = метка «Неофициальная копия»
 const Integrity = {
@@ -9513,6 +9807,9 @@ const BASE_CSS = `
 .vd-qn.on { color: #fff !important; background: color-mix(in srgb, var(--vd-acc, #e5484d) 26%, transparent); border-color: color-mix(in srgb, var(--vd-acc, #e5484d) 60%, transparent); }
 .vd-qn-n { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font-size: 10px; display: inline-grid; place-items: center; background: rgba(255,255,255,.1); }
 .vd-qn-car { opacity: .6; font-size: 10px; }
+.vd-qn .vd-qn-n { margin-left: 2px; }
+.vd-qn-n.hot { background: color-mix(in srgb, var(--vd-acc, #e5484d) 75%, transparent); color: #fff; font-weight: 700; }
+#vd-qnav-menu a { display: flex !important; align-items: center; justify-content: space-between; gap: 14px; }
 .vd-qn-add { border-style: dashed; color: #9aa0ab !important; background: transparent; }
 #vd-qnav-menu { position: fixed; z-index: 2147482000; min-width: 220px; padding: 6px; border-radius: 12px; background: rgba(18,20,26,.96); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 20px 50px -12px rgba(0,0,0,.8); backdrop-filter: blur(16px); }
 #vd-qnav-menu a { display: block; padding: 9px 12px; border-radius: 8px; color: #e4e6eb !important; text-decoration: none !important; font-size: 13px; }
@@ -9772,6 +10069,7 @@ function boot() {
         QNav.mount();
         Bus.on('settings', () => QNav.mount());
         Age.start();
+        QNav.watchCounts();
         // ответы разработчика на обращения
         setTimeout(() => {
             Feedback.notify();
