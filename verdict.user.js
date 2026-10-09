@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.14
+// @version      1.10.15
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.14', // подставляет build.sh из @version
+    version: '1.10.15', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -605,6 +605,8 @@ const hsl = {
 //   kind:  complaint | appeal | app | bio | any
 //   hint:  признак анализатора (noproof, form, late...), cue: слова в тексте
 // переменные в тексте: {greeting} {user} {nick} {admin} {date} {time} {target} {cursor}
+// вердикты передачи: ответ — только строка «Передано …», без приветствия, тема помечается префиксом
+const TRANSFER_VERDICTS = ['tech', 'ga', 'kp', 'cur', 'zga', 'spec'];
 const it = (verdict, title, text, extra) => Object.assign({ verdict, title, text }, extra || {});
 
 const DEFAULT_PACKS = [
@@ -624,7 +626,7 @@ const DEFAULT_PACKS = [
             it(
                 'tech',
                 'Передано техническому специалисту',
-                'Ожидайте ответа в этой теме.',
+                '',
                 {
                     key: 'тех',
                     cue: '(^|[^а-яa-z])баг|не работает|пропал[аио]?([^а-яa-z]|$)|вылет|техническ|не начислил|не пришл'
@@ -633,13 +635,13 @@ const DEFAULT_PACKS = [
             it(
                 'ga',
                 'Передано Главному администратору',
-                'Ожидайте ответа в этой теме.',
+                '',
                 { key: 'га' }
             ),
             it(
                 'kp',
                 'Передано Команде проекта',
-                'Ожидайте ответа в этой теме.',
+                '',
                 { key: 'кп' }
             ),
             it(
@@ -667,37 +669,37 @@ const DEFAULT_PACKS = [
             it(
                 'cur',
                 'Передано куратору организаций',
-                'Ожидайте ответа в этой теме.',
+                '',
                 { key: 'курорг', tail: 'Передано куратору организаций.' }
             ),
             it(
                 'cur',
                 'Передано куратору администрации',
-                'Ожидайте ответа в этой теме.',
+                '',
                 { key: 'куради', tail: 'Передано куратору администрации.' }
             ),
             it(
                 'cur',
                 'Передано куратору АП',
-                'Ожидайте ответа в этой теме.',
+                '',
                 { key: 'курап', tail: 'Передано куратору АП.' }
             ),
             it(
                 'zga',
                 'Передано ЗГА',
-                'Ожидайте ответа в этой теме.',
+                '',
                 { key: 'зга' }
             ),
             it(
                 'zga',
                 'Передано ЗГА ГОСС и ОПГ',
-                'Ожидайте ответа в этой теме.',
+                '',
                 { key: 'згаопг', tail: 'Передано ЗГА по ГОСС и ОПГ.' }
             ),
             it(
                 'spec',
                 'Передано спец. администратору',
-                'Ожидайте ответа в этой теме.',
+                '',
                 { key: 'спец' }
             )
         ]
@@ -1612,7 +1614,7 @@ const DEFAULT_PACKS = [
             it(
                 'cur',
                 'Передано следящим',
-                'Ожидайте ответа в этой теме.',
+                '',
                 { key: 'след', tail: 'Передано следящим за организацией.' }
             )
         ]
@@ -1732,6 +1734,28 @@ const Packs = {
             Store.set('packs', this._v);
         }
         Store.set('packsSeen', [...new Set(seen.concat(DEFAULT_PACKS.map(p => p.id)))]);
+        // передача: старые названия → новые, без дублей; текст «Ожидайте ответа…» убран — пишется только «Передано …»
+        if (!Store.get('transferV2', false)) {
+            const RENAME = [
+                ['Передано тех. специалисту', 'Передано техническому специалисту'],
+                ['Передано Главному Администратору', 'Передано Главному администратору'],
+                ['Передано Команде Проекта', 'Передано Команде проекта']
+            ];
+            this._v.forEach(p => {
+                RENAME.forEach(([from, to]) => {
+                    const old = p.items.find(x => x.title === from);
+                    if (!old) return;
+                    // копия под новым названием, которую добавила 1.10.14, — лишняя
+                    p.items = p.items.filter(x => !(x.title === to && x !== old));
+                    old.title = to;
+                });
+                p.items.forEach(x => {
+                    if (TRANSFER_VERDICTS.includes(x.verdict) && String(x.text || '').trim() === 'Ожидайте ответа в этой теме.') x.text = '';
+                });
+            });
+            Store.set('packs', this._v);
+            Store.set('transferV2', true);
+        }
         // то же для отдельных ответов внутри существующих разделов
         const sig = (pid, it) => pid + '::' + it.title;
         const allSigs = DEFAULT_PACKS.flatMap(p => p.items.map(i => sig(p.id, i)));
@@ -2332,19 +2356,20 @@ const Answer = {
             ? `[COLOR=${pal[item.verdict] || pal[VERDICT_BASE[item.verdict]] || pal.none}][B]${tailText}[/B][/COLOR]`
             : '';
         // деловой стиль: всегда «Здравствуйте», без «доброй ночи»
-        const greet = s.greet && s.style !== 'compact' ? `Здравствуйте, ${v.user}.` : '';
+        const bare = TRANSFER_VERDICTS.includes(item.verdict) && !body;
+        const greet = s.greet && s.style !== 'compact' && !bare ? `Здравствуйте, ${v.user}.` : '';
         const sig = s.signature ? `[I]С уважением, ${s.signature}.[/I]` : '';
         const blocks = [];
         if (s.banner) blocks.push(`[IMG]${s.banner}[/IMG]`);
 
         if (s.style === 'card') {
             if (greet) blocks.push(greet);
-            blocks.push(`[QUOTE]${body}[/QUOTE]`);
+            if (body) blocks.push(`[QUOTE]${body}[/QUOTE]`);
             if (tail) blocks.push(tail);
         } else if (s.style === 'strict') {
             if (greet) blocks.push(greet);
             blocks.push(body);
-            if (tail) blocks.push(`———————————\n${tail}`);
+            if (tail) blocks.push(body ? `———————————\n${tail}` : tail);
         } else {
             if (greet) blocks.push(greet);
             blocks.push(body);
@@ -5255,6 +5280,9 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 
   box-shadow: inset 3px 0 0 var(--vd-acc) !important;
 }
 .block-filterBar { font-size: 11.5px !important; }
+/* подвал: у блоков свои значки слева — полоса и отступы не должны на них наезжать */
+.uix_extendedFooter .block-minorHeader { box-shadow: none !important; padding-left: 16px !important; padding-right: 16px !important; }
+.uix_extendedFooter .block-row, .uix_extendedFooter .blockLink { padding-left: 16px !important; padding-right: 16px !important; }
 
 /* разделы и темы */
 .node, .structItem { background: transparent !important; border-color: var(--vd-line) !important; transition: background .2s; }
@@ -7463,9 +7491,7 @@ const SETTINGS_TABS = [
     ['role', 'badge', 'Должность', 'Какие разделы и вердикты показывать'],
     ['answers', 'pen', 'Ответы', 'Свои ответы и разделы, импорт и экспорт'],
     ['look', 'star', 'Оформление ответа', 'Как ответ выглядит в теме'],
-    ['themes', 'palette', 'Темы', 'Готовые темы: фон, цвета и эффект'],
-    ['colors', 'star', 'Цвета', 'Цвета отдельных элементов форума'],
-    ['theme', 'image', 'Фоны и прозрачность', 'Фон, прозрачность, погода'],
+    ['themes', 'palette', 'Темы', 'Готовые темы, цвета, фон и прозрачность'],
     ['status', 'lock', 'Статусы и поведение', 'Префиксы, подсказки, горячие клавиши'],
     ['qnav', 'forward', 'Навигация', 'Быстрые кнопки разделов в шапке форума'],
     ['mystats', 'bolt', 'Моя статистика', 'Сколько ответов ты дал: по дням, вердиктам и разделам'],
@@ -7563,7 +7589,13 @@ const SettingsUI = {
         // поиск Ctrl+K под настройками не нужен
         const pal = Layer._root && Layer._root.querySelector('.modal.pal');
         if (pal) pal.closest('.scrim').remove();
+        // «Цвета» и «Фоны» теперь внутри «Тем»
+        if (tab === 'colors' || tab === 'theme') {
+            this.themeSub = tab;
+            tab = 'themes';
+        }
         if (tab) this.tab = tab;
+        if (!SETTINGS_TABS.some(t => t[0] === this.tab)) this.tab = 'role';
         this.close();
         const off = !Integrity.ok();
         this.scrim = Layer.add(
@@ -7871,7 +7903,9 @@ const SettingsUI = {
         scrim.querySelector('[data-a="ok"]').onclick = () => {
             const title = f('title').value.trim(),
                 text = f('text').value;
-            if (!title || !text.trim()) {
+            // у передачи текста может не быть: ответ — только строка «Передано …»
+            const tailOnly = TRANSFER_VERDICTS.includes(f('verdict') ? f('verdict').value : (item || {}).verdict);
+            if (!title || (!text.trim() && !tailOnly)) {
                 toast('Заполните название и текст', 'err');
                 return;
             }
@@ -8256,7 +8290,34 @@ const SettingsUI = {
         this.draw();
         toast(`Тема «${p.name}»`);
     },
+    // «Темы»: готовые темы, цвета элементов и фон — три вкладки одной страницы
+    themeSub: 'list',
     tab_themes(pane) {
+        const subs = [
+            ['list', 'Готовые темы'],
+            ['colors', 'Цвета'],
+            ['theme', 'Фон и прозрачность']
+        ];
+        if (!subs.some(x => x[0] === this.themeSub)) this.themeSub = 'list';
+        const seg = U.h(`<div class="seg vd-subtabs"></div>`);
+        subs.forEach(([id, nm]) => {
+            const b = U.h(`<button class="${this.themeSub === id ? 'on' : ''}">${nm}</button>`);
+            b.onclick = () => {
+                if (this.themeSub === id) return;
+                this.themeSub = id;
+                this._lastTab = null;
+                this.draw();
+            };
+            seg.appendChild(b);
+        });
+        const top = U.h(`<div style="margin:0 0 14px"></div>`);
+        top.appendChild(seg);
+        pane.appendChild(top);
+        if (this.themeSub === 'colors') return this.tab_colors(pane);
+        if (this.themeSub === 'theme') return this.tab_theme(pane);
+        return this.tab_themesList(pane);
+    },
+    tab_themesList(pane) {
         const s = Settings.get(),
             w = s.theme.wall;
         this.themeCat = this.themeCat || 'all';
@@ -10943,6 +11004,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.15', ['Передача — только строка «Передано Главному администратору.» без приветствия и «Ожидайте ответа»; тема помечается префиксом', 'Дубли ответов передачи после 1.10.14 убраны', 'Настройки: «Темы», «Цвета» и «Фон» — одна страница с вкладками', 'Подвал форума: значки блоков больше не перекрываются полосой']],
     ['1.10.14', ['Строгие формулировки передачи: «Передано Главному администратору.», «Передано техническому специалисту.» — старые и свои варианты исправлены сами']],
     ['1.10.13', ['Пометки на фото доказательств: ручка, маркер, рамка, стрелка, подпись, 5 цветов, отмена (Ctrl+Z). Сохраняются — откроешь фото снова, они на месте', 'Заметка к каждому фото', 'Отдалил колесом до конца или нажал колесо — фото встаёт по центру', 'Убрана кнопка «Выключить просмотр» из окна фото — выключается в настройках']],
     ['1.10.12', ['Раздел сервера в быстрой навигации — компактный квадратик с номером (например «49»)', 'Быстрый просмотр узнаёт ссылки, спрятанные в переходник на любом адресе']],
