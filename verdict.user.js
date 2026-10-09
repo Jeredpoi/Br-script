@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.9
+// @version      1.10.10
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.9', // подставляет build.sh из @version
+    version: '1.10.10', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10086,6 +10086,8 @@ const Lightbox = {
     PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|radikal\.cloud|radikal\.ru|fastpic\.org|fastpic\.ru|joxi\.ru|joxi\.net|imageban\.ru|ipic\.su|funkyimg\.com|pixs\.ru|savepice\.ru|imgsh\.net|vfl\.ru|picshare\.ru|lightshot\.com|disk\.yandex\.ru|disk\.yandex\.com|yadi\.sk|cloud\.mail\.ru|photos\.app\.goo\.gl|ibb\.org)$/i,
     // точно не фото — такие ссылки не проверяем
     NOT: /(^|\.)(vk\.com|vk\.ru|vkvideo\.ru|youtube\.com|youtu\.be|t\.me|telegram\.me|discord\.gg|twitch\.tv|tiktok\.com|ok\.ru|rutube\.ru|wikipedia\.org|blackrussia\.online|google\.com|github\.com|play\.google\.com|apps\.apple\.com)$/i,
+    // ссылки в постах: обычный текст, карточки ссылок и разметка тем, где пост не в .bbWrapper
+    SEL: '.bbWrapper a[href], .bbCodeBlock--unfurl a[href], .message-userContent a[href], .message-body a[href]',
     cache: new Map(),
     probes: new Map(),
 
@@ -10201,11 +10203,11 @@ const Lightbox = {
             'click',
             e => {
                 if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-                const a = e.target.closest && e.target.closest('.bbWrapper a[href], .bbCodeBlock--unfurl a[href]');
+                const a = e.target.closest && e.target.closest(this.SEL);
                 if (!a || a.closest('.fr-box')) return;
                 const st = Settings.get();
                 const ext = this.external(a.href);
-                const post = a.closest('.message-body, .message-content, .bbWrapper') || document.body;
+                const post = a.closest('.message-body, .message-content, .message-userContent, .bbWrapper') || document.body;
                 if (st.imgPreview && this.resolve(a.href, false) && !a.closest('.message-signature')) {
                     e.preventDefault();
                     e.stopImmediatePropagation();
@@ -10248,7 +10250,7 @@ const Lightbox = {
         // ссылки на неизвестные сайты проверяем в фоне (не больше 30 за страницу): фото — получат значок
         if (on) {
             this._probed = this._probed || 0;
-            document.querySelectorAll('.bbWrapper a[href]').forEach(a => {
+            document.querySelectorAll(this.SEL).forEach(a => {
                 if (this._probed >= 30 || a.dataset.vdProbe || a.querySelector('img') || this.resolve(a.href, false) || !this.external(a.href)) return;
                 const real = this.real(a.href);
                 let host = '';
@@ -10268,7 +10270,7 @@ const Lightbox = {
                 });
             });
         }
-        document.querySelectorAll('.bbWrapper a[href]').forEach(a => {
+        document.querySelectorAll(this.SEL).forEach(a => {
             const want = on && !a.closest('.fr-box, .message-signature') && !a.querySelector('img') && !!(a.dataset.vdImg || this.resolve(a.href, false));
             if (want && !a.classList.contains('vd-imglink')) {
                 a.classList.add('vd-imglink');
@@ -10594,6 +10596,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.10', ['Быстрый просмотр фото надёжнее: значок «глаз» и окно просмотра работают, даже если другая часть скрипта дала сбой']],
     ['1.10.9', ['Исправлено: на iPhone (Userscripts) оригинальный скрипт помечался «Неофициальной копией»']],
     ['1.10.8', ['На странице «Пожалуйста, будьте осторожны» скрипт сам моментально нажимает «Перейти на сайт»']],
     ['1.10.7', ['Быстрый просмотр открывает фото с любых сайтов: известные хостинги, Яндекс Диск, Google Диск, прямые ссылки без расширения', 'Внешние ссылки в постах открываются сразу, без страницы «Будьте осторожны»']],
@@ -11040,12 +11043,19 @@ function boot() {
         const idle = window.requestIdleCallback || (f => setTimeout(f, 200));
         idle(
             () => {
-                Age.start();
-                Nicks.start();
-                Lightbox.start();
-                WhatsNew.start();
-                Mojibake.start();
-                QNav.watchCounts();
+                // каждая часть отдельно: ошибка в одной не выключает остальные (просмотр фото, «Что нового»…)
+                [Age, Nicks, Lightbox, WhatsNew, Mojibake].forEach(m => {
+                    try {
+                        m.start();
+                    } catch (err) {
+                        console.warn('VERDICT:', err);
+                    }
+                });
+                try {
+                    QNav.watchCounts();
+                } catch (err) {
+                    console.warn('VERDICT:', err);
+                }
             },
             { timeout: 1500 }
         );
