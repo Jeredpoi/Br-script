@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.3
+// @version      1.10.4
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -49,7 +49,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.3', // подставляет build.sh из @version
+    version: '1.10.4', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5305,6 +5305,21 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 
 .message-cell--user { border-top-left-radius: 16px; border-bottom-left-radius: 16px; }
 /* «Поделиться» и прочие блоки после постов не прилипают */
 .blockMessage, .block-outer--after, .shareButtons { margin-top: 14px !important; }
+/* меню на телефоне (выезжает слева) — в теме скрипта */
+.offCanvasMenu-content {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--vd-acc) 10%, transparent), transparent 220px), color-mix(in srgb, var(--vd-block) 97%, #0c0d11) !important;
+  ${blockBlur} border-right: 1px solid var(--vd-line) !important; box-shadow: 18px 0 50px -20px rgba(0,0,0,.85) !important; color: #e8e9ec !important;
+}
+.offCanvasMenu-header { background: transparent !important; border-bottom: 1px solid var(--vd-line) !important; color: #f1f2f5 !important; box-shadow: inset 3px 0 0 var(--vd-acc) !important; }
+.offCanvasMenu-list, .offCanvasMenu-subList, .offCanvasMenu-linkHolder, .offCanvasMenu-link, .offCanvasMenu-installBanner, .offCanvasMenu-row, .offCanvasMenu-separator { background: transparent !important; border-color: var(--vd-line) !important; color: #e3e5ea !important; }
+.offCanvasMenu-subList { background: rgba(0,0,0,.18) !important; }
+.offCanvasMenu-linkHolder { border-radius: 10px; margin: 2px 8px !important; transition: background .2s; }
+.offCanvasMenu-linkHolder:hover, .offCanvasMenu-linkHolder.is-selected { background: color-mix(in srgb, var(--vd-acc) 14%, transparent) !important; }
+.offCanvasMenu-linkHolder.is-selected { box-shadow: inset 3px 0 0 var(--vd-acc) !important; }
+.offCanvasMenu-link i, .offCanvasMenu-link .fa, .offCanvasMenu-link svg { color: color-mix(in srgb, var(--vd-acc) 55%, #fff) !important; }
+.offCanvasMenu-installBanner, .offCanvasMenu-row:last-child { border-top: 1px solid var(--vd-line) !important; }
+.offCanvasMenu-installBanner .button, .offCanvasMenu .button { background: color-mix(in srgb, var(--vd-acc) 22%, transparent) !important; border: 1px solid var(--vd-line) !important; border-radius: 10px !important; color: #fff !important; }
+.offCanvasMenu-backdrop { background: rgba(0,0,0,.45) !important; }
 /* телефон: карточки ровно по краям, текст не прилипает к рамке, блоки боковой колонки не налезают друг на друга */
 @media (max-width: 760px) {
   .block-container, .blockMessage, .shareButtons { margin-left: 0 !important; margin-right: 0 !important; }
@@ -10344,6 +10359,7 @@ const Lightbox = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.4', ['Меню форума на телефоне — в теме скрипта', 'Кнопка VERDICT прячется, пока открыто меню']],
     ['1.10.3', ['Выделенный текст хорошо видно: плотная заливка и белые буквы']],
     ['1.10.2', ['Ровная вёрстка на телефоне: отступы в карточках, блоки не налезают друг на друга', 'Кнопка VERDICT на телефоне — слева внизу']],
     ['1.10.1', ['Окно «Что нового» после обновления', 'После установки обновления форум перезагружается сам', 'В просмотре фото — кнопка «Выключить просмотр»']],
@@ -10679,6 +10695,17 @@ const Launcher = {
             U.h(`<button class="launch" title="Настройки VERDICT (Alt+V)">${icon('logo', 22)}</button>`)
         );
         this.node.onclick = () => SettingsUI.open();
+        // открыто меню форума на телефоне — кнопку прячем, чтобы не лежала поверх пунктов меню
+        if (!this._watch) {
+            this._watch = true;
+            const check = () => {
+                if (!this.node) return;
+                const open = !!document.querySelector('.offCanvasMenu.is-active, .offCanvasMenu.is-transitioning');
+                this.node.style.display = open ? 'none' : '';
+            };
+            document.addEventListener('click', () => [60, 400].forEach(t => setTimeout(check, t)), true);
+            document.addEventListener('touchend', () => setTimeout(check, 400), true);
+        }
     }
 };
 
