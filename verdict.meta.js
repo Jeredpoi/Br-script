@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.6
+// @version      1.10.7
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -30,6 +30,7 @@
 // @connect      imgbox.com
 // @connect      radikal.cloud
 // @connect      fastpic.org
+// @connect      *
 // @run-at       document-start
 // @noframes
 // @updateURL    https://raw.githubusercontent.com/Jeredpoi/Br-script/main/verdict.meta.js

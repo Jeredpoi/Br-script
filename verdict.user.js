@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.6
+// @version      1.10.7
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -30,6 +30,7 @@
 // @connect      imgbox.com
 // @connect      radikal.cloud
 // @connect      fastpic.org
+// @connect      *
 // @run-at       document-start
 // @noframes
 // @updateURL    https://raw.githubusercontent.com/Jeredpoi/Br-script/main/verdict.meta.js
@@ -53,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.6', // подставляет build.sh из @version
+    version: '1.10.7', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10082,8 +10083,56 @@ const Nicks = {
 const Lightbox = {
     IMG: /\.(png|jpe?g|gif|webp|bmp|avif)(\?[^#]*)?(#.*)?$/i,
     // страницы хостингов: картинку берём из og:image
-    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|radikal\.cloud|fastpic\.org)$/i,
+    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|radikal\.cloud|radikal\.ru|fastpic\.org|fastpic\.ru|joxi\.ru|joxi\.net|imageban\.ru|ipic\.su|funkyimg\.com|pixs\.ru|savepice\.ru|imgsh\.net|vfl\.ru|picshare\.ru|lightshot\.com|disk\.yandex\.ru|disk\.yandex\.com|yadi\.sk|cloud\.mail\.ru|photos\.app\.goo\.gl|ibb\.org)$/i,
+    // точно не фото — такие ссылки не проверяем
+    NOT: /(^|\.)(vk\.com|vk\.ru|vkvideo\.ru|youtube\.com|youtu\.be|t\.me|telegram\.me|discord\.gg|twitch\.tv|tiktok\.com|ok\.ru|rutube\.ru|wikipedia\.org|blackrussia\.online|google\.com|github\.com|play\.google\.com|apps\.apple\.com)$/i,
     cache: new Map(),
+    probes: new Map(),
+
+    // настоящая ссылка: форум может заворачивать внешние ссылки в свой адрес-переходник (?to=, ?url=, proxy.php?link=)
+    real(href) {
+        try {
+            const u = new URL(href, location.href);
+            if (u.hostname === location.hostname) {
+                for (const k of ['to', 'url', 'link', 'u', 'target', 'redirect', 'goto', 'href']) {
+                    const v = u.searchParams.get(k);
+                    if (v && /^https?:\/\//i.test(v)) return v;
+                }
+            }
+            return u.href;
+        } catch {
+            return href;
+        }
+    },
+    external(href) {
+        try {
+            return new URL(this.real(href)).hostname !== location.hostname;
+        } catch {
+            return false;
+        }
+    },
+    // неизвестный сайт: спрашиваем заголовки — если отдаёт картинку, это фото
+    probe(url) {
+        if (this.probes.has(url)) return this.probes.get(url);
+        const p = new Promise(resolve => {
+            if (typeof GM_xmlhttpRequest !== 'function') return resolve(null);
+            let done = false;
+            const fin = v => {
+                if (!done) (done = true), resolve(v);
+            };
+            setTimeout(() => fin(null), 3000);
+            GM_xmlhttpRequest({
+                method: 'HEAD',
+                url,
+                timeout: 3000,
+                onload: r => fin(/content-type:\s*image\//i.test(r.responseHeaders || '') ? r.finalUrl || url : null),
+                onerror: () => fin(null),
+                ontimeout: () => fin(null)
+            });
+        });
+        this.probes.set(url, p);
+        return p;
+    },
 
     // прямая ссылка на картинку, обещание прямой ссылки или null; fetch = false — только проверить, без запросов
     resolve(href, fetch = true) {
@@ -10094,8 +10143,18 @@ const Lightbox = {
             return null;
         }
         if (!/^https?:$/.test(u.protocol)) return null;
+        if (u.hostname === location.hostname) {
+            const r = this.real(u.href);
+            if (r === u.href) return null;
+            u = new URL(r);
+        }
         if (this.IMG.test(u.pathname)) return u.href;
         const host = u.hostname.toLowerCase();
+        // Google Диск: превью файла
+        const gd = host === 'drive.google.com' && u.pathname.match(/\/file\/d\/([\w-]{10,})/);
+        if (gd) return `https://drive.google.com/thumbnail?id=${gd[1]}&sz=w2400`;
+        // ВК и Telegram-CDN с картинками
+        if (/(^|\.)userapi\.com$|(^|\.)vkuserphoto\.ru$|(^|\.)telesco\.pe$/.test(host)) return u.href;
         // imgur.com/ID — картинка лежит на i.imgur.com (альбомы /a/ и /gallery/ — через страницу)
         if (/^(www\.)?imgur\.com$/.test(host) && /^\/[A-Za-z0-9]{5,10}$/.test(u.pathname))
             return 'https://i.imgur.com' + u.pathname + '.png';
@@ -10129,22 +10188,53 @@ const Lightbox = {
     },
 
     links(post) {
-        return [...post.querySelectorAll('a[href]')].filter(a => !a.closest('.message-signature') && this.resolve(a.href, false));
+        return [...post.querySelectorAll('a[href]')].filter(a => !a.closest('.message-signature') && (a.dataset.vdImg || this.resolve(a.href, false)));
     },
 
+    // перейти по ссылке так, как просили (новая вкладка или эта), минуя страницу-предупреждение форума
+    go(a, href) {
+        if (a.target === '_blank' || a.closest('.bbWrapper')) window.open(href, '_blank', 'noopener');
+        else location.href = href;
+    },
     start() {
         document.addEventListener(
             'click',
             e => {
-                if (!Settings.get().imgPreview) return;
                 if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-                const a = e.target.closest && e.target.closest('.bbWrapper a[href]');
-                if (!a || a.closest('.fr-box, .message-signature') || !this.resolve(a.href, false)) return;
+                const a = e.target.closest && e.target.closest('.bbWrapper a[href], .bbCodeBlock--unfurl a[href]');
+                if (!a || a.closest('.fr-box')) return;
+                const st = Settings.get();
+                const ext = this.external(a.href);
+                const post = a.closest('.message-body, .message-content, .bbWrapper') || document.body;
+                if (st.imgPreview && this.resolve(a.href, false) && !a.closest('.message-signature')) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    const list = this.links(post);
+                    this.open(list.map(x => x.href), Math.max(0, list.indexOf(a)));
+                    return;
+                }
+                if (!ext) return;
+                const real = this.real(a.href);
+                let host = '';
+                try {
+                    host = new URL(real).hostname;
+                } catch {
+                    /* ignore */
+                }
+                const unknown = st.imgPreview && !this.NOT.test(host) && !a.closest('.message-signature');
+                if (!unknown && !st.skipLeave) return;
                 e.preventDefault();
                 e.stopImmediatePropagation();
-                const post = a.closest('.message-body, .message-content, .bbWrapper') || document.body;
-                const list = this.links(post);
-                this.open(list.map(x => x.href), Math.max(0, list.indexOf(a)));
+                if (!unknown) return this.go(a, real);
+                // неизвестный сайт: вдруг это фото без расширения в адресе
+                this.probe(real).then(img => {
+                    if (img) {
+                        a.dataset.vdImg = img;
+                        this.mark();
+                        const list = this.links(post);
+                        this.open(list.map(x => x.href), Math.max(0, list.indexOf(a)));
+                    } else this.go(a, st.skipLeave ? real : a.href);
+                });
             },
             true
         );
@@ -10155,8 +10245,31 @@ const Lightbox = {
     },
     mark() {
         const on = Settings.get().imgPreview;
+        // ссылки на неизвестные сайты проверяем в фоне (не больше 30 за страницу): фото — получат значок
+        if (on) {
+            this._probed = this._probed || 0;
+            document.querySelectorAll('.bbWrapper a[href]').forEach(a => {
+                if (this._probed >= 30 || a.dataset.vdProbe || a.querySelector('img') || this.resolve(a.href, false) || !this.external(a.href)) return;
+                const real = this.real(a.href);
+                let host = '';
+                try {
+                    host = new URL(real).hostname;
+                } catch {
+                    return;
+                }
+                if (this.NOT.test(host)) return;
+                a.dataset.vdProbe = '1';
+                this._probed++;
+                this.probe(real).then(img => {
+                    if (img) {
+                        a.dataset.vdImg = img;
+                        this.mark();
+                    }
+                });
+            });
+        }
         document.querySelectorAll('.bbWrapper a[href]').forEach(a => {
-            const want = on && !a.closest('.fr-box, .message-signature') && !a.querySelector('img') && !!this.resolve(a.href, false);
+            const want = on && !a.closest('.fr-box, .message-signature') && !a.querySelector('img') && !!(a.dataset.vdImg || this.resolve(a.href, false));
             if (want && !a.classList.contains('vd-imglink')) {
                 a.classList.add('vd-imglink');
                 a.title = 'Быстрый просмотр (Ctrl+клик — открыть в новой вкладке)';
@@ -10298,7 +10411,8 @@ const Lightbox = {
         msg.style.display = '';
         this.img.style.opacity = '0';
         const token = (this.token = {});
-        const src = await this.resolve(href);
+        const el = [...document.querySelectorAll('a[data-vd-img]')].find(x => x.href === href);
+        const src = (el && el.dataset.vdImg) || (await this.resolve(href)) || (await this.probe(this.real(href)));
         if (token !== this.token || !this.img) return;
         if (!src) return this.fail(href);
         this.src = src;
@@ -10401,8 +10515,19 @@ const LeaveSkip = {
     },
     run() {
         if (!Settings.get().skipLeave) return;
-        const url = this.target();
-        if (url) location.replace(url);
+        const go = () => {
+            const url = this.target();
+            if (url) {
+                location.replace(url);
+                return true;
+            }
+            return false;
+        };
+        if (go()) return;
+        // предупреждение может дорисовываться скриптом форума — следим первые 8 секунд
+        const mo = new MutationObserver(() => go() && mo.disconnect());
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+        setTimeout(() => mo.disconnect(), 8000);
     },
     start() {
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => this.run(), { once: true });
@@ -10448,6 +10573,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.7', ['Быстрый просмотр открывает фото с любых сайтов: известные хостинги, Яндекс Диск, Google Диск, прямые ссылки без расширения', 'Внешние ссылки в постах открываются сразу, без страницы «Будьте осторожны»']],
     ['1.10.6', ['Меню на телефоне — прозрачное стекло, пункты в виде кнопок в стиле темы']],
     ['1.10.5', ['Страница «Пожалуйста, будьте осторожны» пропускается — внешняя ссылка открывается сразу (выключается в настройках)', 'Быстрый просмотр фото с iimg.su, imgbox, fastpic', 'Исправлены «кракозябры» в карточках ссылок', 'Внизу страницы на телефоне кнопки не закрывают подвал']],
     ['1.10.4', ['Меню форума на телефоне — в теме скрипта', 'Кнопка VERDICT прячется, пока открыто меню']],
