@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.4
+// @version      1.10.5
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -26,6 +26,10 @@
 // @connect      imgur.com
 // @connect      skr.sh
 // @connect      gyazo.com
+// @connect      iimg.su
+// @connect      imgbox.com
+// @connect      radikal.cloud
+// @connect      fastpic.org
 // @run-at       document-start
 // @noframes
 // @updateURL    https://raw.githubusercontent.com/Jeredpoi/Br-script/main/verdict.meta.js
@@ -49,7 +53,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.4', // подставляет build.sh из @version
+    version: '1.10.5', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -223,6 +227,7 @@ const DEFAULT_SETTINGS = {
     threadAge: true, // сколько прошло с создания темы
     nickCopy: true, // ники Имя_Фамилия в постах подсвечены и копируются по клику
     imgPreview: true, // ссылки на фото открываются в окне быстрого просмотра
+    skipLeave: true, // без страницы «Пожалуйста, будьте осторожны» перед внешними ссылками
     qnav: { on: true, counts: true, place: 'top', items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
     stats: true, // анонимная отметка «скрипт запущен» раз в день, видна разработчику как число пользователей
     permCheck: true, // прятать панель в разделах, где нет прав модератора
@@ -5335,6 +5340,7 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 
   .block-outer, .block-outer--after { padding-left: 0 !important; padding-right: 0 !important; }
   /* место внизу под кнопки «наверх» и VERDICT */
   .p-footer { padding-bottom: 70px !important; }
+  body { padding-bottom: 72px !important; }
 }
 .fr-toolbar { background: rgba(255,255,255,.03) !important; }
 .input:focus, .fr-box.fr-focus, .input.is-focused { border-color: color-mix(in srgb, var(--vd-acc) 70%, transparent) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--vd-acc) 22%, transparent) !important; }
@@ -8888,6 +8894,17 @@ const SettingsUI = {
         );
         g.appendChild(
             this.row(
+                'Без предупреждения о внешних ссылках',
+                'Страница «Пожалуйста, будьте осторожны!» с отсчётом 30 секунд пропускается — сразу открывается сайт',
+                this.sw(s.skipLeave, v =>
+                    Settings.patch(x => {
+                        x.skipLeave = v;
+                    })
+                )
+            )
+        );
+        g.appendChild(
+            this.row(
                 'Быстрый просмотр фото',
                 'Ссылка на картинку (Imgur, prnt.sc, ibb.co, прямые .png/.jpg…) открывается в окне: колесо — масштаб, ← → — листать. Ctrl+клик — как раньше',
                 this.sw(s.imgPreview, v =>
@@ -10055,7 +10072,7 @@ const Nicks = {
 const Lightbox = {
     IMG: /\.(png|jpe?g|gif|webp|bmp|avif)(\?[^#]*)?(#.*)?$/i,
     // страницы хостингов: картинку берём из og:image
-    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com)$/i,
+    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|radikal\.cloud|fastpic\.org)$/i,
     cache: new Map(),
 
     // прямая ссылка на картинку, обещание прямой ссылки или null; fetch = false — только проверить, без запросов
@@ -10357,8 +10374,71 @@ const Lightbox = {
     }
 };
 
+// страница «Пожалуйста, будьте осторожны!» перед внешней ссылкой: сразу переходим по ссылке, без 30 секунд ожидания
+const LeaveSkip = {
+    target() {
+        const text = document.body ? document.body.innerText || '' : '';
+        if (!/будьте\s+осторожны/i.test(text) || !/перенаправлен/i.test(text)) return null;
+        // кнопка «Перейти на сайт»
+        const btn = [...document.querySelectorAll('a[href]')].find(a => /перейти\s+на\s+сайт/i.test(a.textContent || ''));
+        let url = btn && btn.href;
+        if (!url) {
+            const m = text.match(/перенаправлены\s+на\s+сайт:\s*(https?:\/\/\S+)/i);
+            url = m && m[1];
+        }
+        if (!url || !/^https?:\/\//i.test(url) || new URL(url).hostname === location.hostname) return null;
+        return url;
+    },
+    run() {
+        if (!Settings.get().skipLeave) return;
+        const url = this.target();
+        if (url) location.replace(url);
+    },
+    start() {
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => this.run(), { once: true });
+        else this.run();
+    }
+};
+LeaveSkip.start();
+
+// карточки ссылок (превью сайтов) с «кракозябрами» вида «ÐÑÐ¾…»: текст в UTF-8 прочитан как Windows-1252 — перекодируем
+const Mojibake = {
+    CP: { 0x20ac: 0x80, 0x201a: 0x82, 0x192: 0x83, 0x201e: 0x84, 0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x2c6: 0x88, 0x2030: 0x89, 0x160: 0x8a, 0x2039: 0x8b, 0x152: 0x8c, 0x17d: 0x8e, 0x2018: 0x91, 0x2019: 0x92, 0x201c: 0x93, 0x201d: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97, 0x2dc: 0x98, 0x2122: 0x99, 0x161: 0x9a, 0x203a: 0x9b, 0x153: 0x9c, 0x17e: 0x9e, 0x178: 0x9f },
+    fix(s) {
+        if (!/[ÐÑ][\u0080-ÿŒ-™]/.test(s)) return s;
+        const bytes = [];
+        for (const ch of s) {
+            const c = ch.codePointAt(0);
+            if (c < 0x100) bytes.push(c);
+            else if (this.CP[c] !== undefined) bytes.push(this.CP[c]);
+            else return s;
+        }
+        try {
+            const out = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes));
+            return /[а-яё]/i.test(out) ? out : s;
+        } catch {
+            return s;
+        }
+    },
+    scan() {
+        document.querySelectorAll('.bbCodeBlock--unfurl .contentRow-header a, .bbCodeBlock--unfurl .contentRow-snippet, .bbCodeBlock--unfurl .contentRow-header').forEach(el => {
+            el.childNodes.forEach(n => {
+                if (n.nodeType === 3 && n.nodeValue) {
+                    const v = this.fix(n.nodeValue);
+                    if (v !== n.nodeValue) n.nodeValue = v;
+                }
+            });
+        });
+    },
+    start() {
+        this.scan();
+        new MutationObserver(U.debounce(() => this.scan(), 500)).observe(document.body, { childList: true, subtree: true });
+    }
+};
+
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.5', ['Страница «Пожалуйста, будьте осторожны» пропускается — внешняя ссылка открывается сразу (выключается в настройках)', 'Быстрый просмотр фото с iimg.su, imgbox, fastpic', 'Исправлены «кракозябры» в карточках ссылок', 'Внизу страницы на телефоне кнопки не закрывают подвал']],
     ['1.10.4', ['Меню форума на телефоне — в теме скрипта', 'Кнопка VERDICT прячется, пока открыто меню']],
     ['1.10.3', ['Выделенный текст хорошо видно: плотная заливка и белые буквы']],
     ['1.10.2', ['Ровная вёрстка на телефоне: отступы в карточках, блоки не налезают друг на друга', 'Кнопка VERDICT на телефоне — слева внизу']],
@@ -10802,6 +10882,7 @@ function boot() {
                 Nicks.start();
                 Lightbox.start();
                 WhatsNew.start();
+                Mojibake.start();
                 QNav.watchCounts();
             },
             { timeout: 1500 }
