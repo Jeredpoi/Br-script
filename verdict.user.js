@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.7
+// @version      1.10.8
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.7', // подставляет build.sh из @version
+    version: '1.10.8', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10500,38 +10500,59 @@ const Lightbox = {
 
 // страница «Пожалуйста, будьте осторожны!» перед внешней ссылкой: сразу переходим по ссылке, без 30 секунд ожидания
 const LeaveSkip = {
-    target() {
-        const text = document.body ? document.body.innerText || '' : '';
-        if (!/будьте\s+осторожны/i.test(text) || !/перенаправлен/i.test(text)) return null;
-        // кнопка «Перейти на сайт»
-        const btn = [...document.querySelectorAll('a[href]')].find(a => /перейти\s+на\s+сайт/i.test(a.textContent || ''));
-        let url = btn && btn.href;
-        if (!url) {
-            const m = text.match(/перенаправлены\s+на\s+сайт:\s*(https?:\/\/\S+)/i);
-            url = m && m[1];
-        }
-        if (!url || !/^https?:\/\//i.test(url) || new URL(url).hostname === location.hostname) return null;
-        return url;
+    done: false,
+    // кнопка «Перейти на сайт» на странице «Пожалуйста, будьте осторожны!»
+    button() {
+        const els = document.querySelectorAll('a, button, [role="button"], .button, input[type="button"], input[type="submit"]');
+        for (const el of els) if (/перейти\s+на\s+сайт/i.test(el.textContent || el.value || '')) return el;
+        return null;
     },
-    run() {
-        if (!Settings.get().skipLeave) return;
-        const go = () => {
-            const url = this.target();
-            if (url) {
-                location.replace(url);
-                return true;
-            }
-            return false;
-        };
-        if (go()) return;
-        // предупреждение может дорисовываться скриптом форума — следим первые 8 секунд
-        const mo = new MutationObserver(() => go() && mo.disconnect());
-        mo.observe(document.documentElement, { childList: true, subtree: true });
-        setTimeout(() => mo.disconnect(), 8000);
+    isWarning() {
+        const t = (document.body && document.body.textContent) || '';
+        return /будьте\s+осторожны/i.test(t) && /перенаправлен/i.test(t);
+    },
+    // запасной путь: ссылка из текста «Вы будете перенаправлены на сайт: …»
+    target() {
+        const m = ((document.body && document.body.innerText) || '').match(/перенаправлены\s+на\s+сайт:\s*(https?:\/\/\S+)/i);
+        return m && m[1];
+    },
+    tryPass() {
+        if (this.done || !document.body || !this.isWarning()) return false;
+        const btn = this.button();
+        if (btn) {
+            this.done = true;
+            // нажимаем кнопку сами — как будто нажал ты. Скрипт форума может повесить обработчик на кнопку
+            // чуть позже, поэтому жмём ещё раз, когда страница догрузится
+            const press = () => {
+                const b = this.button();
+                if (b) b.click();
+            };
+            press();
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', press, { once: true });
+            addEventListener('load', press, { once: true });
+            [150, 400].forEach(t => setTimeout(press, t));
+            // кнопка не увела со страницы — переходим по адресу из кнопки или текста
+            setTimeout(() => {
+                const href = (btn.getAttribute && btn.getAttribute('href')) || this.target();
+                if (href && /^https?:\/\//i.test(href)) location.replace(href);
+            }, 900);
+            return true;
+        }
+        const url = this.target();
+        if (url) {
+            this.done = true;
+            location.replace(url);
+            return true;
+        }
+        return false;
     },
     start() {
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => this.run(), { once: true });
-        else this.run();
+        if (!Settings.get().skipLeave) return;
+        if (this.tryPass()) return;
+        // страница ещё грузится — ловим кнопку, как только она появится
+        const mo = new MutationObserver(() => this.tryPass() && mo.disconnect());
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+        setTimeout(() => mo.disconnect(), 15000);
     }
 };
 LeaveSkip.start();
@@ -10573,6 +10594,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.8', ['На странице «Пожалуйста, будьте осторожны» скрипт сам моментально нажимает «Перейти на сайт»']],
     ['1.10.7', ['Быстрый просмотр открывает фото с любых сайтов: известные хостинги, Яндекс Диск, Google Диск, прямые ссылки без расширения', 'Внешние ссылки в постах открываются сразу, без страницы «Будьте осторожны»']],
     ['1.10.6', ['Меню на телефоне — прозрачное стекло, пункты в виде кнопок в стиле темы']],
     ['1.10.5', ['Страница «Пожалуйста, будьте осторожны» пропускается — внешняя ссылка открывается сразу (выключается в настройках)', 'Быстрый просмотр фото с iimg.su, imgbox, fastpic', 'Исправлены «кракозябры» в карточках ссылок', 'Внизу страницы на телефоне кнопки не закрывают подвал']],
