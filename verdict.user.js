@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.2
+// @version      1.10.3
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -49,7 +49,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.2', // подставляет build.sh из @version
+    version: '1.10.3', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5159,7 +5159,9 @@ html { background: #07080b !important; }
 body, .p-pageWrapper, .p-body, .p-body-inner, .uix_pageWrapper--fixed, .p-body-main, .p-body-content, .p-body-pageContent { background: transparent !important; }
 body { color: #e4e6eb !important; }
 a { transition: color .2s; }
-::selection { background: color-mix(in srgb, var(--vd-acc) 45%, transparent); }
+/* выделение текста: плотная заливка и белый текст — видно на любом фоне */
+::selection { background: color-mix(in srgb, var(--vd-acc) 78%, #1a1b20) !important; color: #fff !important; -webkit-text-fill-color: #fff !important; text-shadow: none !important; }
+::-moz-selection { background: color-mix(in srgb, var(--vd-acc) 78%, #1a1b20) !important; color: #fff !important; text-shadow: none !important; }
 /* на html: свойства наследуются, а правило «*» пересчитывалось бы для каждого элемента страницы */
 html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 55%, transparent) transparent; }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
@@ -10342,6 +10344,7 @@ const Lightbox = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.3', ['Выделенный текст хорошо видно: плотная заливка и белые буквы']],
     ['1.10.2', ['Ровная вёрстка на телефоне: отступы в карточках, блоки не налезают друг на друга', 'Кнопка VERDICT на телефоне — слева внизу']],
     ['1.10.1', ['Окно «Что нового» после обновления', 'После установки обновления форум перезагружается сам', 'В просмотре фото — кнопка «Выключить просмотр»']],
     ['1.10.0', ['Быстрый просмотр фото по ссылкам: Imgur, prnt.sc, ibb.co, прямые картинки', 'Масштаб колесом, перетаскивание, листание ← →', 'Фон снова 60 кадров в секунду']],
