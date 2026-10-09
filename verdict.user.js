@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.5
+// @version      1.10.6
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -53,7 +53,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.5', // подставляет build.sh из @version
+    version: '1.10.6', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5310,21 +5310,31 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 
 .message-cell--user { border-top-left-radius: 16px; border-bottom-left-radius: 16px; }
 /* «Поделиться» и прочие блоки после постов не прилипают */
 .blockMessage, .block-outer--after, .shareButtons { margin-top: 14px !important; }
-/* меню на телефоне (выезжает слева) — в теме скрипта */
+/* меню на телефоне (выезжает слева): прозрачное стекло, пункты — кнопки в стиле тем */
 .offCanvasMenu-content {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--vd-acc) 10%, transparent), transparent 220px), color-mix(in srgb, var(--vd-block) 97%, #0c0d11) !important;
-  ${blockBlur} border-right: 1px solid var(--vd-line) !important; box-shadow: 18px 0 50px -20px rgba(0,0,0,.85) !important; color: #e8e9ec !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--vd-acc) 12%, transparent), transparent 260px), var(--vd-glass) !important;
+  backdrop-filter: blur(22px) saturate(1.4) !important; -webkit-backdrop-filter: blur(22px) saturate(1.4) !important;
+  border-right: 1px solid var(--vd-line) !important; box-shadow: 18px 0 50px -20px rgba(0,0,0,.8) !important; color: #eef0f4 !important;
 }
-.offCanvasMenu-header { background: transparent !important; border-bottom: 1px solid var(--vd-line) !important; color: #f1f2f5 !important; box-shadow: inset 3px 0 0 var(--vd-acc) !important; }
-.offCanvasMenu-list, .offCanvasMenu-subList, .offCanvasMenu-linkHolder, .offCanvasMenu-link, .offCanvasMenu-installBanner, .offCanvasMenu-row, .offCanvasMenu-separator { background: transparent !important; border-color: var(--vd-line) !important; color: #e3e5ea !important; }
-.offCanvasMenu-subList { background: rgba(0,0,0,.18) !important; }
-.offCanvasMenu-linkHolder { border-radius: 10px; margin: 2px 8px !important; transition: background .2s; }
-.offCanvasMenu-linkHolder:hover, .offCanvasMenu-linkHolder.is-selected { background: color-mix(in srgb, var(--vd-acc) 14%, transparent) !important; }
-.offCanvasMenu-linkHolder.is-selected { box-shadow: inset 3px 0 0 var(--vd-acc) !important; }
-.offCanvasMenu-link i, .offCanvasMenu-link .fa, .offCanvasMenu-link svg { color: color-mix(in srgb, var(--vd-acc) 55%, #fff) !important; }
+.offCanvasMenu-header { background: transparent !important; border-bottom: 1px solid var(--vd-line) !important; color: #f1f2f5 !important; font-weight: 700 !important; }
+.offCanvasMenu-list, .offCanvasMenu-subList, .offCanvasMenu-link, .offCanvasMenu-installBanner, .offCanvasMenu-row, .offCanvasMenu-separator { background: transparent !important; border-color: transparent !important; color: #e8eaef !important; }
+.offCanvasMenu-list { padding: 8px 0 !important; }
+.offCanvasMenu-linkHolder {
+  margin: 6px 10px !important; border-radius: 12px !important; border: 1px solid var(--vd-line) !important;
+  background: rgba(255,255,255,.045) !important; transition: background .2s, border-color .2s;
+}
+.offCanvasMenu-linkHolder:hover { background: color-mix(in srgb, var(--vd-acc) 12%, rgba(255,255,255,.04)) !important; }
+.offCanvasMenu-linkHolder.is-selected { background: color-mix(in srgb, var(--vd-acc) 20%, transparent) !important; border-color: color-mix(in srgb, var(--vd-acc) 55%, transparent) !important; box-shadow: inset 3px 0 0 var(--vd-acc) !important; }
+.offCanvasMenu-subList { margin: 0 10px 6px 26px !important; padding: 0 !important; }
+.offCanvasMenu-subList .offCanvasMenu-link { margin: 4px 0 !important; padding: 9px 14px !important; border-radius: 10px !important; border: 1px solid var(--vd-line) !important; background: rgba(255,255,255,.03) !important; font-size: .95em; }
+.offCanvasMenu-subList .offCanvasMenu-link:hover { background: color-mix(in srgb, var(--vd-acc) 12%, transparent) !important; }
+.offCanvasMenu-link i, .offCanvasMenu-link .fa, .offCanvasMenu-link svg, .offCanvasMenu-splitToggle { color: color-mix(in srgb, var(--vd-acc) 60%, #fff) !important; }
 .offCanvasMenu-installBanner, .offCanvasMenu-row:last-child { border-top: 1px solid var(--vd-line) !important; }
-.offCanvasMenu-installBanner .button, .offCanvasMenu .button { background: color-mix(in srgb, var(--vd-acc) 22%, transparent) !important; border: 1px solid var(--vd-line) !important; border-radius: 10px !important; color: #fff !important; }
-.offCanvasMenu-backdrop { background: rgba(0,0,0,.45) !important; }
+.offCanvasMenu .button, .offCanvasMenu-installBanner .button {
+  background: color-mix(in srgb, var(--vd-acc) 85%, #000) !important; border: 0 !important; border-radius: 12px !important; color: #fff !important; font-weight: 700 !important;
+  box-shadow: 0 8px 22px -10px color-mix(in srgb, var(--vd-acc) 80%, transparent) !important;
+}
+.offCanvasMenu-backdrop { background: rgba(0,0,0,.35) !important; }
 /* телефон: карточки ровно по краям, текст не прилипает к рамке, блоки боковой колонки не налезают друг на друга */
 @media (max-width: 760px) {
   .block-container, .blockMessage, .shareButtons { margin-left: 0 !important; margin-right: 0 !important; }
@@ -10438,6 +10448,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.6', ['Меню на телефоне — прозрачное стекло, пункты в виде кнопок в стиле темы']],
     ['1.10.5', ['Страница «Пожалуйста, будьте осторожны» пропускается — внешняя ссылка открывается сразу (выключается в настройках)', 'Быстрый просмотр фото с iimg.su, imgbox, fastpic', 'Исправлены «кракозябры» в карточках ссылок', 'Внизу страницы на телефоне кнопки не закрывают подвал']],
     ['1.10.4', ['Меню форума на телефоне — в теме скрипта', 'Кнопка VERDICT прячется, пока открыто меню']],
     ['1.10.3', ['Выделенный текст хорошо видно: плотная заливка и белые буквы']],
