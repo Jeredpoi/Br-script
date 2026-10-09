@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.12
+// @version      1.10.13
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.12', // подставляет build.sh из @version
+    version: '1.10.13', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10339,6 +10339,19 @@ const Lightbox = {
     },
 
     // ── окно просмотра
+    // пометки на фото: ручка, маркер, рамка, стрелка, текст и заметка. Хранятся у тебя, привязаны к ссылке на фото
+    TOOLS: [
+        ['move', 'Двигать фото (V)', '<path d="M12 2l3 3h-2v6h6V9l3 3-3 3v-2h-6v6h2l-3 3-3-3h2v-6H5v2l-3-3 3-3v2h6V5H9z"/>'],
+        ['pen', 'Ручка (P)', '<path d="M3 21l1.2-4.6L16.6 4a2 2 0 012.8 0l.6.6a2 2 0 010 2.8L7.6 19.8z"/>'],
+        ['mark', 'Маркер (M)', '<path d="M4 20h7l-2-2H6zM9 16l-2-2 9-9 4 4-9 9z"/>'],
+        ['rect', 'Рамка (R)', '<path d="M3 5h18v14H3zm2 2v10h14V7z"/>'],
+        ['arrow', 'Стрелка (A)', '<path d="M4 18.6L15.6 7H9V5h10v10h-2V8.4L5.4 20z"/>'],
+        ['text', 'Текст (T)', '<path d="M4 4h16v4h-2V6h-5v12h2v2H9v-2h2V6H6v2H4z"/>']
+    ],
+    COLORS: ['#ff4d4f', '#ffd60a', '#34c759', '#4da3ff', '#ffffff'],
+    tool: 'move',
+    color: '#ff4d4f',
+
     open(urls, i) {
         this.close();
         this.urls = urls;
@@ -10348,45 +10361,83 @@ const Lightbox = {
         document.documentElement.appendChild(host);
         const root = host.attachShadow({ mode: 'open' });
         const acc = Settings.get().accent || '#e5484d';
+        const ico = p => `<svg viewBox="0 0 24 24">${p}</svg>`;
         root.innerHTML = `<style>
             :host{all:initial}
-            .bg{position:fixed;inset:0;z-index:2147483646;background:rgba(8,9,12,.86);backdrop-filter:blur(6px);
-                display:flex;align-items:center;justify-content:center;font:13px/1.4 "Segoe UI",system-ui,sans-serif;color:#e8e9ec;
-                animation:in .16s ease-out;overflow:hidden;user-select:none}
+            .bg{position:fixed;inset:0;z-index:2147483646;background:rgba(8,9,12,.88);backdrop-filter:blur(6px);
+                font:13px/1.4 "Segoe UI",system-ui,sans-serif;color:#e8e9ec;animation:in .16s ease-out;overflow:hidden;user-select:none}
             @keyframes in{from{opacity:0}to{opacity:1}}
-            .stage{position:absolute;inset:0;cursor:grab}
+            .stage{position:absolute;inset:0;cursor:grab;touch-action:none}
             .stage.drag{cursor:grabbing}
-            img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;box-shadow:0 18px 60px rgba(0,0,0,.6);border-radius:6px;
-                transition:opacity .15s;will-change:transform}
+            .stage.draw{cursor:crosshair}
+            .stage.type{cursor:text}
+            img,.ink{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;will-change:transform}
+            img{-webkit-user-drag:none;box-shadow:0 18px 60px rgba(0,0,0,.6);border-radius:6px;transition:opacity .15s}
+            .ink{pointer-events:none;overflow:visible}
+            .snap img,.snap .ink{transition:transform .22s cubic-bezier(.2,.8,.2,1),opacity .15s}
             .bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:10px 14px;
-                background:linear-gradient(rgba(0,0,0,.55),transparent);z-index:2}
+                background:linear-gradient(rgba(0,0,0,.6),transparent);z-index:3}
             .cnt{font-weight:700;min-width:46px}
             .src{flex:1;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             .zoom{opacity:.8;min-width:48px;text-align:right}
-            button{all:unset;cursor:pointer;padding:7px 11px;border-radius:9px;background:rgba(255,255,255,.1);font-weight:600}
+            button{all:unset;cursor:pointer;padding:7px 11px;border-radius:9px;background:rgba(255,255,255,.1);font-weight:600;
+                transition:background .12s}
             button:hover{background:${acc}}
             .nav{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;display:flex;
                 align-items:center;justify-content:center;font-size:26px;padding:0;background:rgba(255,255,255,.08);z-index:2}
             .prev{left:16px}.next{right:16px}
-            .msg{position:absolute;text-align:center;z-index:1}
-            .spin{width:34px;height:34px;border:3px solid rgba(255,255,255,.2);border-top-color:${acc};border-radius:50%;
-                animation:sp .8s linear infinite;margin:0 auto}
+            .msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+                text-align:center;z-index:1;pointer-events:none}
+            .msg button{pointer-events:auto}
+            .spin{width:34px;height:34px;border:3px solid rgba(255,255,255,.2);border-top-color:${acc};border-radius:50%;animation:sp .8s linear infinite}
             @keyframes sp{to{transform:rotate(360deg)}}
-            .hint{position:absolute;bottom:10px;left:0;right:0;text-align:center;opacity:.5;font-size:12px;z-index:2}
+            .tools{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;
+                padding:6px;border-radius:14px;background:rgba(22,24,30,.82);border:1px solid rgba(255,255,255,.1);
+                box-shadow:0 10px 30px rgba(0,0,0,.45);backdrop-filter:blur(10px);z-index:3}
+            .tools button{width:34px;height:34px;padding:0;display:grid;place-items:center;border-radius:10px;background:transparent}
+            .tools button:hover{background:rgba(255,255,255,.1)}
+            .tools button.on{background:${acc};color:#fff}
+            .tools svg{width:18px;height:18px;fill:currentColor}
+            .sep{width:1px;height:22px;background:rgba(255,255,255,.14);margin:0 4px}
+            .sw{width:20px!important;height:20px!important;border-radius:50%!important;margin:0 3px;box-shadow:inset 0 0 0 2px rgba(0,0,0,.25)}
+            .sw.on{outline:2px solid #fff;outline-offset:2px;background:var(--c)!important}
+            .tools button.sw:hover{background:var(--c)}
+            .tools button[disabled]{opacity:.35;pointer-events:none}
+            .note{position:absolute;right:16px;bottom:72px;width:280px;max-width:calc(100% - 32px);padding:10px;border-radius:14px;
+                background:rgba(22,24,30,.9);border:1px solid rgba(255,255,255,.1);box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:3;
+                display:none}
+            .note.show{display:block;animation:in .14s ease-out}
+            .note b{display:block;font-size:12px;opacity:.7;margin:0 0 6px 2px}
+            textarea{all:unset;box-sizing:border-box;display:block;width:100%;min-height:110px;max-height:40vh;overflow:auto;padding:8px 10px;border-radius:9px;
+                background:rgba(255,255,255,.06);font:13px/1.45 "Segoe UI",system-ui,sans-serif;color:#eef0f3;white-space:pre-wrap;user-select:text}
+            textarea:focus{background:rgba(255,255,255,.1);box-shadow:0 0 0 1px ${acc}}
+            .tin{position:absolute;z-index:4;min-width:60px;padding:2px 4px;border:0;outline:1px dashed rgba(255,255,255,.6);border-radius:4px;
+                background:rgba(0,0,0,.35);font:700 22px/1.2 "Segoe UI",system-ui,sans-serif;user-select:text}
+            .hint{position:absolute;bottom:62px;left:0;right:0;text-align:center;opacity:.45;font-size:12px;z-index:2;pointer-events:none}
+            @media (max-width:640px){.bar button[data-a="copy"],.zoom,.hint{display:none}.tools{bottom:10px;max-width:calc(100% - 20px);overflow-x:auto}}
         </style>
         <div class="bg">
-            <div class="stage"><img alt=""></div>
+            <div class="stage"><img alt="" draggable="false"><svg class="ink" xmlns="http://www.w3.org/2000/svg"></svg></div>
             <div class="msg"><div class="spin"></div></div>
             <div class="bar">
                 <span class="cnt"></span><span class="src"></span><span class="zoom"></span>
-                <button data-a="fit" title="По размеру окна (двойной клик)">По размеру</button>
+                <button data-a="fit" title="По размеру окна (0, двойной клик или нажатие колеса)">По размеру</button>
                 <button data-a="copy">Копировать ссылку</button>
                 <button data-a="tab">Открыть оригинал</button>
-                <button data-a="off" title="Ссылки снова будут открываться в новой вкладке. Включить — в настройках">Выключить просмотр</button>
-                <button data-a="x" title="Закрыть (Esc)">✕</button>
+                <button data-a="x" title="Закрыть просмотр (Esc)">✕</button>
             </div>
             <button class="nav prev" data-a="prev">‹</button><button class="nav next" data-a="next">›</button>
-            <div class="hint">Колесо — масштаб · перетаскивание — сдвиг · ← → — листать · Esc — закрыть</div>
+            <div class="note"><b>Заметка к этому фото</b><textarea placeholder="Что видно на фото: время, ник, нарушение…"></textarea></div>
+            <div class="tools">
+                ${this.TOOLS.map(([k, t, p]) => `<button data-tool="${k}" title="${t}">${ico(p)}</button>`).join('')}
+                <span class="sep"></span>
+                ${this.COLORS.map(c => `<button class="sw" data-color="${c}" style="--c:${c};background:${c}" title="Цвет"></button>`).join('')}
+                <span class="sep"></span>
+                <button data-a="undo" title="Отменить (Ctrl+Z)">${ico('<path d="M12.5 8c-2.6 0-5 1-6.9 2.6L2 7v9h9l-3.6-3.6A8 8 0 0120.4 16l2.4-.8A10.5 10.5 0 0012.5 8z"/>')}</button>
+                <button data-a="clear" title="Стереть все пометки на этом фото">${ico('<path d="M6 7h12l-1 14H7zm3-4h6l1 2h4v2H4V5h4z"/>')}</button>
+                <button data-a="note" title="Заметка к фото">${ico('<path d="M5 3h10l4 4v14H5zm9 1.5V8h3.5zM8 11v2h8v-2zm0 4v2h6v-2z"/>')}</button>
+            </div>
+            <div class="hint">Колесо — масштаб · нажатие колеса — исходный вид · ← → — листать · Esc — закрыть</div>
         </div>`;
         this.host = host;
         this.$ = s => root.querySelector(s);
@@ -10394,16 +10445,23 @@ const Lightbox = {
             stage = this.$('.stage'),
             img = this.$('img');
         this.img = img;
+        this.svg = this.$('.ink');
         root.addEventListener('click', e => {
-            const b = e.target.closest('[data-a]');
+            const t = e.target.closest('[data-tool]'),
+                c = e.target.closest('[data-color]'),
+                b = e.target.closest('[data-a]');
+            if (t) return this.setTool(t.dataset.tool);
+            if (c) return this.setColor(c.dataset.color);
             if (b) {
                 e.stopPropagation();
                 this.act(b.dataset.a);
-            } else if (e.target === bg || e.target === stage) {
-                if (!this.moved) this.close();
-            }
+            } else if ((e.target === bg || e.target === stage) && this.tool === 'move' && !this.moved) this.close();
         });
-        stage.addEventListener('dblclick', e => (this.z < this.fitZ * 1.01 ? this.zoomAt(1, e.clientX, e.clientY, true) : this.fit()));
+        stage.addEventListener('dblclick', e => {
+            if (this.tool !== 'move') return;
+            if (this.z < this.fitZ * 1.01) this.zoomAt(1, e.clientX, e.clientY, true);
+            else this.fit(true);
+        });
         stage.addEventListener(
             'wheel',
             e => {
@@ -10412,30 +10470,91 @@ const Lightbox = {
             },
             { passive: false }
         );
+        // браузер не должен «перетаскивать картинку» — иначе рисование и сдвиг обрываются
+        stage.addEventListener('dragstart', e => e.preventDefault());
+        // нажатие колеса — фото снова по центру и целиком
+        stage.addEventListener('mousedown', e => e.button === 1 && e.preventDefault());
+        stage.addEventListener('auxclick', e => e.button === 1 && e.preventDefault());
         stage.addEventListener('pointerdown', e => {
-            if (e.button !== 0) return;
+            if (e.button === 1) {
+                e.preventDefault();
+                return this.fit(true);
+            }
+            if (e.button !== 0 || !this.img.naturalWidth) return;
+            if (this.tool === 'text') return this.textAt(e);
+            e.preventDefault();
+            stage.setPointerCapture(e.pointerId);
+            if (this.tool !== 'move') {
+                const p = this.pt(e);
+                this.remember();
+                this.cur = { t: this.tool, c: this.color, w: (this.tool === 'mark' ? 16 : 3.5) / this.z, p: this.tool === 'pen' || this.tool === 'mark' ? [p] : [p, p] };
+                this.shapes.push(this.cur);
+                this.draw();
+                return;
+            }
             this.drag = { x: e.clientX - this.x, y: e.clientY - this.y, sx: e.clientX, sy: e.clientY };
             this.moved = false;
             stage.classList.add('drag');
-            stage.setPointerCapture(e.pointerId);
         });
         stage.addEventListener('pointermove', e => {
+            if (this.cur) {
+                const p = this.pt(e),
+                    pts = this.cur.p;
+                if (pts.length === 2 && (this.cur.t === 'rect' || this.cur.t === 'arrow')) pts[1] = p;
+                else {
+                    const l = pts[pts.length - 1];
+                    if (Math.hypot(p[0] - l[0], p[1] - l[1]) * this.z < 2) return;
+                    pts.push(p);
+                }
+                this.draw();
+                return;
+            }
             if (!this.drag) return;
             if (Math.abs(e.clientX - this.drag.sx) + Math.abs(e.clientY - this.drag.sy) > 4) this.moved = true;
             this.x = e.clientX - this.drag.x;
             this.y = e.clientY - this.drag.y;
             this.apply();
         });
-        stage.addEventListener('pointerup', () => {
+        const up = () => {
+            if (this.cur) {
+                const s = this.cur;
+                this.cur = null;
+                // случайный клик без движения — не пометка
+                const [a, b] = [s.p[0], s.p[s.p.length - 1]];
+                if (s.p.length < 2 || Math.hypot(a[0] - b[0], a[1] - b[1]) * this.z < 3) {
+                    if (s.t === 'pen' || s.t === 'mark') s.p.push([a[0] + 0.01, a[1]]);
+                    else {
+                        this.shapes.pop();
+                        this.hist.pop();
+                    }
+                }
+                this.draw();
+                this.save();
+                return;
+            }
             this.drag = null;
             stage.classList.remove('drag');
             setTimeout(() => (this.moved = false), 0);
-        });
+        };
+        stage.addEventListener('pointerup', up);
+        stage.addEventListener('pointercancel', up);
+        const ta = this.$('textarea');
+        ta.addEventListener('input', U.debounce(() => this.save(), 300));
         this.onKey = e => {
+            // печатаешь в заметке или подписи — клавиши твои
+            const typing = e.composedPath().some(n => n && (n.tagName === 'TEXTAREA' || n.tagName === 'INPUT'));
+            if (typing) {
+                if (e.key === 'Escape' && e.composedPath()[0] === ta) ta.blur();
+                return;
+            }
+            const k = e.key.toLowerCase();
+            const keys = { v: 'move', м: 'move', p: 'pen', з: 'pen', m: 'mark', ь: 'mark', r: 'rect', к: 'rect', a: 'arrow', ф: 'arrow', t: 'text', е: 'text' };
             if (e.key === 'Escape') this.close();
             else if (e.key === 'ArrowLeft') this.act('prev');
             else if (e.key === 'ArrowRight') this.act('next');
-            else if (e.key === '0') this.fit();
+            else if (e.key === '0') this.fit(true);
+            else if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я')) this.act('undo');
+            else if (!e.ctrlKey && !e.metaKey && !e.altKey && keys[k]) this.setTool(keys[k]);
             else return;
             e.preventDefault();
             e.stopPropagation();
@@ -10443,7 +10562,129 @@ const Lightbox = {
         this.onResize = U.debounce(() => this.fit(), 120);
         addEventListener('keydown', this.onKey, true);
         addEventListener('resize', this.onResize);
+        this.setTool(this.tool);
+        this.setColor(this.color);
         this.show();
+    },
+    setTool(t) {
+        this.tool = t;
+        if (!this.host) return;
+        this.$('.tools').querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+        const st = this.$('.stage');
+        st.classList.toggle('draw', t !== 'move' && t !== 'text');
+        st.classList.toggle('type', t === 'text');
+    },
+    setColor(c) {
+        this.color = c;
+        if (!this.host) return;
+        this.$('.tools').querySelectorAll('[data-color]').forEach(b => b.classList.toggle('on', b.dataset.color === c));
+    },
+    // точка экрана → точка на фото (пометки живут в координатах фото и масштабируются вместе с ним)
+    pt(e) {
+        return [+((e.clientX - this.x) / this.z).toFixed(1), +((e.clientY - this.y) / this.z).toFixed(1)];
+    },
+    // подпись: поле ввода прямо на фото, Enter — готово, Esc — отмена
+    textAt(e) {
+        e.preventDefault();
+        const old = this.$('.tin');
+        if (old) return old.blur();
+        const p = this.pt(e);
+        const size = 22 / this.z;
+        const inp = document.createElement('input');
+        inp.className = 'tin';
+        inp.style.left = e.clientX + 'px';
+        inp.style.top = e.clientY - 16 + 'px';
+        inp.style.color = this.color;
+        inp.placeholder = 'Подпись…';
+        this.$('.bg').appendChild(inp);
+        let done = false;
+        const finish = keep => {
+            if (done) return;
+            done = true;
+            const v = inp.value.trim();
+            inp.remove();
+            if (!keep || !v) return;
+            this.remember();
+            this.shapes.push({ t: 'text', c: this.color, s: size, p: [[p[0], +(p[1] + size * 0.35).toFixed(1)]], v: v.slice(0, 200) });
+            this.draw();
+            this.save();
+        };
+        inp.addEventListener('keydown', k => {
+            if (k.key === 'Enter') finish(true);
+            else if (k.key === 'Escape') finish(false);
+        });
+        inp.addEventListener('blur', () => finish(true));
+        setTimeout(() => inp.focus(), 0);
+    },
+    draw() {
+        const svg = this.svg;
+        if (!svg || !this.img.naturalWidth) return;
+        const w = this.img.naturalWidth,
+            h = this.img.naturalHeight;
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', h);
+        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        const line = s => `fill="none" stroke="${s.c}" stroke-width="${s.w}" stroke-linecap="round" stroke-linejoin="round"`;
+        svg.innerHTML = this.shapes
+            .map(s => {
+                const c = /^#[0-9a-f]{6}$/i.test(s.c) ? s.c : '#ff4d4f';
+                s = { ...s, c, w: +s.w || 3 };
+                const P = s.p || [];
+                if (s.t === 'pen' || s.t === 'mark')
+                    return `<path d="M${P.map(q => q.join(' ')).join('L')}" ${line(s)}${s.t === 'mark' ? ' opacity=".38"' : ''}/>`;
+                if (P.length < 2 && s.t !== 'text') return '';
+                if (s.t === 'rect') {
+                    const [a, b] = P;
+                    return `<rect x="${Math.min(a[0], b[0])}" y="${Math.min(a[1], b[1])}" width="${Math.abs(a[0] - b[0])}" height="${Math.abs(a[1] - b[1])}" rx="${s.w}" ${line(s)}/>`;
+                }
+                if (s.t === 'arrow') {
+                    const [a, b] = P;
+                    const ang = Math.atan2(b[1] - a[1], b[0] - a[0]),
+                        L = s.w * 5;
+                    const h1 = [b[0] - L * Math.cos(ang - 0.45), b[1] - L * Math.sin(ang - 0.45)],
+                        h2 = [b[0] - L * Math.cos(ang + 0.45), b[1] - L * Math.sin(ang + 0.45)];
+                    return `<path d="M${a.join(' ')}L${b.join(' ')}M${h1.join(' ')}L${b.join(' ')}L${h2.join(' ')}" ${line(s)}/>`;
+                }
+                if (s.t === 'text' && P[0])
+                    return `<text x="${P[0][0]}" y="${P[0][1]}" font-size="${+s.s || 22}" font-weight="700" font-family="Segoe UI,system-ui,sans-serif" fill="${c}" stroke="rgba(0,0,0,.75)" stroke-width="${(+s.s || 22) * 0.16}" paint-order="stroke" stroke-linejoin="round">${U.esc(String(s.v || ''))}</text>`;
+                return '';
+            })
+            .join('');
+        this.$('[data-a="undo"]').disabled = !this.hist.length;
+        this.$('[data-a="clear"]').disabled = !this.shapes.length;
+    },
+    // пометки хранятся по ссылке на фото: открыл тот же скрин позже — они на месте
+    key() {
+        return String(this.urls[this.i] || '').slice(0, 300);
+    },
+    load() {
+        const all = Store.get('photoNotes', {}) || {};
+        const d = all[this.key()] || {};
+        this.shapes = Array.isArray(d.s) ? d.s : [];
+        this.hist = [];
+        const ta = this.$('textarea');
+        ta.value = d.n || '';
+        this.$('.note').classList.toggle('show', !!d.n);
+        this.$('[data-a="note"]').classList.toggle('on', !!d.n);
+    },
+    save() {
+        if (!this.host) return;
+        const all = Store.get('photoNotes', {}) || {};
+        const n = this.$('textarea').value;
+        const k = this.key();
+        if (!this.shapes.length && !n.trim()) delete all[k];
+        else all[k] = { s: this.shapes, n, t: Date.now() };
+        // храним последние 150 фото с пометками
+        const keys = Object.keys(all);
+        if (keys.length > 150)
+            keys.sort((a, b) => (all[a].t || 0) - (all[b].t || 0))
+                .slice(0, keys.length - 150)
+                .forEach(x => delete all[x]);
+        Store.set('photoNotes', all);
+    },
+    remember() {
+        this.hist.push(JSON.stringify(this.shapes));
+        if (this.hist.length > 60) this.hist.shift();
     },
     async show() {
         const n = this.urls.length,
@@ -10457,10 +10698,14 @@ const Lightbox = {
             /* ignore */
         }
         this.$('.src').textContent = host;
+        const tin = this.$('.tin');
+        if (tin) tin.blur();
+        this.load();
+        this.svg.innerHTML = '';
         const msg = this.$('.msg');
         msg.innerHTML = '<div class="spin"></div>';
         msg.style.display = '';
-        this.img.style.opacity = '0';
+        this.img.style.opacity = this.svg.style.opacity = '0';
         const token = (this.token = {});
         const el = [...document.querySelectorAll('a[data-vd-img]')].find(x => this.url(x) === href);
         const src = (el && el.dataset.vdImg) || (await this.resolve(href)) || (await this.probe(this.real(href)));
@@ -10470,8 +10715,9 @@ const Lightbox = {
         this.img.onload = () => {
             if (token !== this.token) return;
             msg.style.display = 'none';
-            this.img.style.opacity = '1';
+            this.img.style.opacity = this.svg.style.opacity = '1';
             this.fit();
+            this.draw();
         };
         this.img.onerror = () => token === this.token && this.fail(href);
         this.img.referrerPolicy = 'no-referrer';
@@ -10494,57 +10740,84 @@ const Lightbox = {
         b.onclick = () => window.open(href, '_blank', 'noopener');
         msg.appendChild(b);
     },
-    fit() {
+    // фото целиком и по центру; smooth — плавно, когда возвращаем из неудачного положения
+    fit(smooth) {
         if (!this.img || !this.img.naturalWidth) return;
         const w = this.img.naturalWidth,
             h = this.img.naturalHeight;
-        this.fitZ = Math.min(1, (innerWidth - 120) / w, (innerHeight - 110) / h);
+        this.fitZ = Math.min(1, (innerWidth - 120) / w, (innerHeight - 170) / h);
         this.z = this.fitZ;
         this.x = (innerWidth - w * this.z) / 2;
-        this.y = (innerHeight - h * this.z) / 2 + 10;
+        this.y = (innerHeight - h * this.z) / 2;
+        if (smooth) {
+            const bg = this.$('.bg');
+            bg.classList.add('snap');
+            clearTimeout(this._snap);
+            this._snap = setTimeout(() => bg.classList.remove('snap'), 260);
+        }
         this.apply();
     },
     zoomAt(z, cx, cy, exact) {
         if (!this.img || !this.img.naturalWidth) return;
-        z = Math.max(this.fitZ * 0.5, Math.min(exact ? z : 8, z));
+        // отдалил до исходного размера и дальше — фото само встаёт по центру
+        if (z <= this.fitZ * 1.001) return this.fit(true);
+        z = Math.min(exact ? z : 8, z);
         this.x = cx - ((cx - this.x) * z) / this.z;
         this.y = cy - ((cy - this.y) * z) / this.z;
         this.z = z;
         this.apply();
     },
     apply() {
+        const t = `translate(${this.x}px,${this.y}px) scale(${this.z})`;
         this.img.style.width = this.img.naturalWidth + 'px';
-        this.img.style.transform = `translate(${this.x}px,${this.y}px) scale(${this.z})`;
+        this.img.style.transform = this.svg.style.transform = t;
         this.$('.zoom').textContent = Math.round(this.z * 100) + '%';
     },
     act(a) {
         const n = this.urls.length;
         if (a === 'x') this.close();
-        else if (a === 'fit') this.fit();
+        else if (a === 'fit') this.fit(true);
         else if (a === 'tab') window.open(this.urls[this.i], '_blank', 'noopener');
-        else if (a === 'off') {
-            Settings.patch(x => {
-                x.imgPreview = false;
-            });
-            this.close();
-            toast('Быстрый просмотр выключен. Включить — в настройках VERDICT', 'info');
-        }
         else if (a === 'copy') {
             navigator.clipboard.writeText(this.urls[this.i]).then(
                 () => toast('Ссылка скопирована'),
                 () => toast('Не удалось скопировать', 'err')
             );
+        } else if (a === 'undo') {
+            if (!this.hist.length) return;
+            this.shapes = JSON.parse(this.hist.pop());
+            this.draw();
+            this.save();
+        } else if (a === 'clear') {
+            if (!this.shapes.length) return;
+            this.remember();
+            this.shapes = [];
+            this.draw();
+            this.save();
+            toast('Пометки стёрты. Вернуть — Ctrl+Z', 'info');
+        } else if (a === 'note') {
+            const box = this.$('.note');
+            const on = !box.classList.contains('show');
+            box.classList.toggle('show', on);
+            this.$('[data-a="note"]').classList.toggle('on', on);
+            if (on) this.$('textarea').focus();
         } else if ((a === 'prev' || a === 'next') && n > 1) {
+            const tin = this.$('.tin');
+            if (tin) tin.blur();
+            this.save();
             this.i = (this.i + (a === 'next' ? 1 : -1) + n) % n;
             this.show();
         }
     },
     close() {
         if (!this.host) return;
+        const tin = this.$('.tin');
+        if (tin) tin.blur();
+        this.save();
         removeEventListener('keydown', this.onKey, true);
         removeEventListener('resize', this.onResize);
         this.host.remove();
-        this.host = this.img = null;
+        this.host = this.img = this.svg = null;
         this.token = null;
     }
 };
@@ -10645,6 +10918,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.13', ['Пометки на фото доказательств: ручка, маркер, рамка, стрелка, подпись, 5 цветов, отмена (Ctrl+Z). Сохраняются — откроешь фото снова, они на месте', 'Заметка к каждому фото', 'Отдалил колесом до конца или нажал колесо — фото встаёт по центру', 'Убрана кнопка «Выключить просмотр» из окна фото — выключается в настройках']],
     ['1.10.12', ['Раздел сервера в быстрой навигации — компактный квадратик с номером (например «49»)', 'Быстрый просмотр узнаёт ссылки, спрятанные в переходник на любом адресе']],
     ['1.10.11', ['Быстрый просмотр: фото с wertigo.ru и других файлообменников', 'Ссылки, которые форум прячет в свой переходник, тоже открываются просмотром']],
     ['1.10.10', ['Быстрый просмотр фото надёжнее: значок «глаз» и окно просмотра работают, даже если другая часть скрипта дала сбой']],
