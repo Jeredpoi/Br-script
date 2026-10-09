@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.9.9
+// @version      1.10.0
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -16,6 +16,16 @@
 // @connect      script.google.com
 // @connect      script.googleusercontent.com
 // @connect      raw.githubusercontent.com
+// @connect      prnt.sc
+// @connect      prntscr.com
+// @connect      ibb.co
+// @connect      imgbb.com
+// @connect      postimg.cc
+// @connect      postimages.org
+// @connect      yapx.ru
+// @connect      imgur.com
+// @connect      skr.sh
+// @connect      gyazo.com
 // @run-at       document-start
 // @noframes
 // @updateURL    https://raw.githubusercontent.com/Jeredpoi/Br-script/main/verdict.meta.js
@@ -39,7 +49,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.9.9', // подставляет build.sh из @version
+    version: '1.10.0', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -212,6 +222,7 @@ const DEFAULT_SETTINGS = {
     autograph: { style: 'classic', custom: '' },
     threadAge: true, // сколько прошло с создания темы
     nickCopy: true, // ники Имя_Фамилия в постах подсвечены и копируются по клику
+    imgPreview: true, // ссылки на фото открываются в окне быстрого просмотра
     qnav: { on: true, counts: true, place: 'top', items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
     stats: true, // анонимная отметка «скрипт запущен» раз в день, видна разработчику как число пользователей
     permCheck: true, // прятать панель в разделах, где нет прав модератора
@@ -3776,7 +3787,7 @@ class LiveWall {
     // экономный режим: меньше пикселей и кадров, браузер растягивает холст сам
     size() {
         const k = Perf.light() ? 0.6 : 1;
-        return { w: Math.round(innerWidth * k), h: Math.round(innerHeight * k), fps: k < 1 ? 24 : 30 };
+        return { w: Math.round(innerWidth * k), h: Math.round(innerHeight * k), fps: k < 1 ? 30 : 60 };
     }
     startLocal() {
         this.ctx = this.cv.getContext('2d');
@@ -3801,7 +3812,7 @@ class LiveWall {
         this.raf = requestAnimationFrame(this.frame);
         if (document.hidden) return;
         const speed = Settings.get().theme.liveSpeed;
-        if (!speed || now - this.last < 1000 / 30) return;
+        if (!speed || now - this.last < 1000 / (Perf.light() ? 30 : 60) - 2) return;
         const dt = this.last ? Math.min(0.1, (now - this.last) / 1000) : 0;
         this.last = now;
         this.t += dt * speed;
@@ -4311,8 +4322,8 @@ const Fx = {
                 return;
             }
             this.raf = requestAnimationFrame(step);
-            // 30 fps (экономный — 24): эффектам больше не нужно
-            if (this.last && now - this.last < (this.k < 1 ? 41 : 31)) return;
+            // экономный: 30 fps
+            if (this.k < 1 && this.last && now - this.last < 31) return;
             const dt = Math.min(0.05, (now - (this.last || now)) / 1000);
             this.last = now;
             this.frame(dt, now);
@@ -4508,8 +4519,7 @@ class LiveScene {
         if (!this.cv) return;
         this.raf = requestAnimationFrame(this.frame);
         if (document.hidden) return;
-        // фон — 30 кадров в секунду (в экономном режиме 24): глазу хватает, процессор вдвое свободнее
-        if (this.last && now - this.last < (this.k < 1 ? 41 : 31)) return;
+        if (this.k < 1 && this.last && now - this.last < 31) return;
         const dt = this.last ? Math.min(0.05, (now - this.last) / 1000) : 0;
         this.last = now;
         const t = now / 1000,
@@ -8845,6 +8855,17 @@ const SettingsUI = {
         );
         g.appendChild(
             this.row(
+                'Быстрый просмотр фото',
+                'Ссылка на картинку (Imgur, prnt.sc, ibb.co, прямые .png/.jpg…) открывается в окне: колесо — масштаб, ← → — листать. Ctrl+клик — как раньше',
+                this.sw(s.imgPreview, v =>
+                    Settings.patch(x => {
+                        x.imgPreview = v;
+                    })
+                )
+            )
+        );
+        g.appendChild(
+            this.row(
                 'Сколько прошло с создания темы',
                 'Метка рядом с датой: зелёная до 12 ч, жёлтая до 2 дней, потом красная. Закрытые темы без метки',
                 this.sw(s.threadAge, v =>
@@ -9982,6 +10003,306 @@ const Nicks = {
     }
 };
 
+// быстрый просмотр фото: клик по ссылке на картинку в посте открывает окно просмотра вместо новой вкладки.
+// Колесо — масштаб к курсору, перетаскивание — сдвиг, двойной клик — 100% / по размеру окна,
+// ← → — другие фото этого поста, Esc или клик по фону — закрыть. Ctrl/Shift/средняя кнопка — как обычно.
+const Lightbox = {
+    IMG: /\.(png|jpe?g|gif|webp|bmp|avif)(\?[^#]*)?(#.*)?$/i,
+    // страницы хостингов: картинку берём из og:image
+    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com)$/i,
+    cache: new Map(),
+
+    // прямая ссылка на картинку, обещание прямой ссылки или null; fetch = false — только проверить, без запросов
+    resolve(href, fetch = true) {
+        let u;
+        try {
+            u = new URL(href, location.href);
+        } catch {
+            return null;
+        }
+        if (!/^https?:$/.test(u.protocol)) return null;
+        if (this.IMG.test(u.pathname)) return u.href;
+        const host = u.hostname.toLowerCase();
+        // imgur.com/ID — картинка лежит на i.imgur.com (альбомы /a/ и /gallery/ — через страницу)
+        if (/^(www\.)?imgur\.com$/.test(host) && /^\/[A-Za-z0-9]{5,10}$/.test(u.pathname))
+            return 'https://i.imgur.com' + u.pathname + '.png';
+        if (host === 'i.imgur.com' || /(^|\.)(discordapp|discord)\.(com|net)$/.test(host) && /\/attachments\//.test(u.pathname))
+            return u.href;
+        if (this.PAGES.test(host) && u.pathname.length > 1) return fetch ? this.fromPage(u.href) : true;
+        return null;
+    },
+    fromPage(url) {
+        if (this.cache.has(url)) return this.cache.get(url);
+        const p = new Promise(resolve => {
+            if (typeof GM_xmlhttpRequest !== 'function') return resolve(null);
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                timeout: 10000,
+                onload: r => {
+                    const t = String(r.responseText || '');
+                    const m =
+                        t.match(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)/i) ||
+                        t.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image/i) ||
+                        t.match(/<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)/i);
+                    resolve(m ? m[1].replace(/&amp;/g, '&') : null);
+                },
+                onerror: () => resolve(null),
+                ontimeout: () => resolve(null)
+            });
+        });
+        this.cache.set(url, p);
+        return p;
+    },
+
+    links(post) {
+        return [...post.querySelectorAll('a[href]')].filter(a => !a.closest('.message-signature') && this.resolve(a.href, false));
+    },
+
+    start() {
+        document.addEventListener(
+            'click',
+            e => {
+                if (!Settings.get().imgPreview) return;
+                if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+                const a = e.target.closest && e.target.closest('.bbWrapper a[href]');
+                if (!a || a.closest('.fr-box, .message-signature') || !this.resolve(a.href, false)) return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                const post = a.closest('.message-body, .message-content, .bbWrapper') || document.body;
+                const list = this.links(post);
+                this.open(list.map(x => x.href), Math.max(0, list.indexOf(a)));
+            },
+            true
+        );
+        // подсказка на ссылках: значок «глаз» у ссылок на фото
+        Bus.on('settings', () => this.mark());
+        new MutationObserver(U.debounce(() => this.mark(), 500)).observe(document.body, { childList: true, subtree: true });
+        this.mark();
+    },
+    mark() {
+        const on = Settings.get().imgPreview;
+        document.querySelectorAll('.bbWrapper a[href]').forEach(a => {
+            const want = on && !a.closest('.fr-box, .message-signature') && !a.querySelector('img') && !!this.resolve(a.href, false);
+            if (want && !a.classList.contains('vd-imglink')) {
+                a.classList.add('vd-imglink');
+                a.title = 'Быстрый просмотр (Ctrl+клик — открыть в новой вкладке)';
+            } else if (!want && a.classList.contains('vd-imglink')) {
+                a.classList.remove('vd-imglink');
+                a.removeAttribute('title');
+            }
+        });
+        if (!document.getElementById('vd-imglink-css')) {
+            const st = document.createElement('style');
+            st.id = 'vd-imglink-css';
+            st.textContent =
+                'a.vd-imglink{cursor:zoom-in}a.vd-imglink::after{content:"";display:inline-block;width:.95em;height:.95em;margin-left:.3em;vertical-align:-.12em;opacity:.75;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath d=%27M12 5C6.5 5 2.7 9.4 1.5 12c1.2 2.6 5 7 10.5 7s9.3-4.4 10.5-7C21.3 9.4 17.5 5 12 5zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9zm0-7a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z%27/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath d=%27M12 5C6.5 5 2.7 9.4 1.5 12c1.2 2.6 5 7 10.5 7s9.3-4.4 10.5-7C21.3 9.4 17.5 5 12 5zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9zm0-7a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z%27/%3E%3C/svg%3E") center/contain no-repeat}';
+            document.head.appendChild(st);
+        }
+    },
+
+    // ── окно просмотра
+    open(urls, i) {
+        this.close();
+        this.urls = urls;
+        this.i = i;
+        const host = document.createElement('div');
+        host.id = 'vd-lightbox';
+        document.documentElement.appendChild(host);
+        const root = host.attachShadow({ mode: 'open' });
+        const acc = Settings.get().accent || '#e5484d';
+        root.innerHTML = `<style>
+            :host{all:initial}
+            .bg{position:fixed;inset:0;z-index:2147483646;background:rgba(8,9,12,.86);backdrop-filter:blur(6px);
+                display:flex;align-items:center;justify-content:center;font:13px/1.4 "Segoe UI",system-ui,sans-serif;color:#e8e9ec;
+                animation:in .16s ease-out;overflow:hidden;user-select:none}
+            @keyframes in{from{opacity:0}to{opacity:1}}
+            .stage{position:absolute;inset:0;cursor:grab}
+            .stage.drag{cursor:grabbing}
+            img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;box-shadow:0 18px 60px rgba(0,0,0,.6);border-radius:6px;
+                transition:opacity .15s;will-change:transform}
+            .bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:10px 14px;
+                background:linear-gradient(rgba(0,0,0,.55),transparent);z-index:2}
+            .cnt{font-weight:700;min-width:46px}
+            .src{flex:1;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            .zoom{opacity:.8;min-width:48px;text-align:right}
+            button{all:unset;cursor:pointer;padding:7px 11px;border-radius:9px;background:rgba(255,255,255,.1);font-weight:600}
+            button:hover{background:${acc}}
+            .nav{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;display:flex;
+                align-items:center;justify-content:center;font-size:26px;padding:0;background:rgba(255,255,255,.08);z-index:2}
+            .prev{left:16px}.next{right:16px}
+            .msg{position:absolute;text-align:center;z-index:1}
+            .spin{width:34px;height:34px;border:3px solid rgba(255,255,255,.2);border-top-color:${acc};border-radius:50%;
+                animation:sp .8s linear infinite;margin:0 auto}
+            @keyframes sp{to{transform:rotate(360deg)}}
+            .hint{position:absolute;bottom:10px;left:0;right:0;text-align:center;opacity:.5;font-size:12px;z-index:2}
+        </style>
+        <div class="bg">
+            <div class="stage"><img alt=""></div>
+            <div class="msg"><div class="spin"></div></div>
+            <div class="bar">
+                <span class="cnt"></span><span class="src"></span><span class="zoom"></span>
+                <button data-a="fit" title="По размеру окна (двойной клик)">По размеру</button>
+                <button data-a="copy">Копировать ссылку</button>
+                <button data-a="tab">Открыть оригинал</button>
+                <button data-a="x" title="Закрыть (Esc)">✕</button>
+            </div>
+            <button class="nav prev" data-a="prev">‹</button><button class="nav next" data-a="next">›</button>
+            <div class="hint">Колесо — масштаб · перетаскивание — сдвиг · ← → — листать · Esc — закрыть</div>
+        </div>`;
+        this.host = host;
+        this.$ = s => root.querySelector(s);
+        const bg = this.$('.bg'),
+            stage = this.$('.stage'),
+            img = this.$('img');
+        this.img = img;
+        root.addEventListener('click', e => {
+            const b = e.target.closest('[data-a]');
+            if (b) {
+                e.stopPropagation();
+                this.act(b.dataset.a);
+            } else if (e.target === bg || e.target === stage) {
+                if (!this.moved) this.close();
+            }
+        });
+        stage.addEventListener('dblclick', e => (this.z < this.fitZ * 1.01 ? this.zoomAt(1, e.clientX, e.clientY, true) : this.fit()));
+        stage.addEventListener(
+            'wheel',
+            e => {
+                e.preventDefault();
+                this.zoomAt(this.z * (e.deltaY < 0 ? 1.18 : 1 / 1.18), e.clientX, e.clientY);
+            },
+            { passive: false }
+        );
+        stage.addEventListener('pointerdown', e => {
+            if (e.button !== 0) return;
+            this.drag = { x: e.clientX - this.x, y: e.clientY - this.y, sx: e.clientX, sy: e.clientY };
+            this.moved = false;
+            stage.classList.add('drag');
+            stage.setPointerCapture(e.pointerId);
+        });
+        stage.addEventListener('pointermove', e => {
+            if (!this.drag) return;
+            if (Math.abs(e.clientX - this.drag.sx) + Math.abs(e.clientY - this.drag.sy) > 4) this.moved = true;
+            this.x = e.clientX - this.drag.x;
+            this.y = e.clientY - this.drag.y;
+            this.apply();
+        });
+        stage.addEventListener('pointerup', () => {
+            this.drag = null;
+            stage.classList.remove('drag');
+            setTimeout(() => (this.moved = false), 0);
+        });
+        this.onKey = e => {
+            if (e.key === 'Escape') this.close();
+            else if (e.key === 'ArrowLeft') this.act('prev');
+            else if (e.key === 'ArrowRight') this.act('next');
+            else if (e.key === '0') this.fit();
+            else return;
+            e.preventDefault();
+            e.stopPropagation();
+        };
+        this.onResize = U.debounce(() => this.fit(), 120);
+        addEventListener('keydown', this.onKey, true);
+        addEventListener('resize', this.onResize);
+        this.show();
+    },
+    async show() {
+        const n = this.urls.length,
+            href = this.urls[this.i];
+        this.$('.cnt').textContent = n > 1 ? `${this.i + 1} / ${n}` : '';
+        this.$('.prev').style.display = this.$('.next').style.display = n > 1 ? '' : 'none';
+        let host = '';
+        try {
+            host = new URL(href).hostname.replace(/^www\./, '');
+        } catch {
+            /* ignore */
+        }
+        this.$('.src').textContent = host;
+        const msg = this.$('.msg');
+        msg.innerHTML = '<div class="spin"></div>';
+        msg.style.display = '';
+        this.img.style.opacity = '0';
+        const token = (this.token = {});
+        const src = await this.resolve(href);
+        if (token !== this.token || !this.img) return;
+        if (!src) return this.fail(href);
+        this.src = src;
+        this.img.onload = () => {
+            if (token !== this.token) return;
+            msg.style.display = 'none';
+            this.img.style.opacity = '1';
+            this.fit();
+        };
+        this.img.onerror = () => token === this.token && this.fail(href);
+        this.img.referrerPolicy = 'no-referrer';
+        this.img.src = src;
+        // соседние фото грузим заранее — листание без ожидания
+        [this.i + 1, this.i - 1].forEach(k => {
+            const u = this.urls[(k + n) % n];
+            if (n > 1 && u)
+                Promise.resolve(this.resolve(u)).then(s => {
+                    if (s) new Image().src = s;
+                });
+        });
+    },
+    fail(href) {
+        const msg = this.$('.msg');
+        msg.style.display = '';
+        msg.innerHTML = 'Не удалось показать фото.<br><br>';
+        const b = document.createElement('button');
+        b.textContent = 'Открыть в новой вкладке';
+        b.onclick = () => window.open(href, '_blank', 'noopener');
+        msg.appendChild(b);
+    },
+    fit() {
+        if (!this.img || !this.img.naturalWidth) return;
+        const w = this.img.naturalWidth,
+            h = this.img.naturalHeight;
+        this.fitZ = Math.min(1, (innerWidth - 120) / w, (innerHeight - 110) / h);
+        this.z = this.fitZ;
+        this.x = (innerWidth - w * this.z) / 2;
+        this.y = (innerHeight - h * this.z) / 2 + 10;
+        this.apply();
+    },
+    zoomAt(z, cx, cy, exact) {
+        if (!this.img || !this.img.naturalWidth) return;
+        z = Math.max(this.fitZ * 0.5, Math.min(exact ? z : 8, z));
+        this.x = cx - ((cx - this.x) * z) / this.z;
+        this.y = cy - ((cy - this.y) * z) / this.z;
+        this.z = z;
+        this.apply();
+    },
+    apply() {
+        this.img.style.width = this.img.naturalWidth + 'px';
+        this.img.style.transform = `translate(${this.x}px,${this.y}px) scale(${this.z})`;
+        this.$('.zoom').textContent = Math.round(this.z * 100) + '%';
+    },
+    act(a) {
+        const n = this.urls.length;
+        if (a === 'x') this.close();
+        else if (a === 'fit') this.fit();
+        else if (a === 'tab') window.open(this.urls[this.i], '_blank', 'noopener');
+        else if (a === 'copy') {
+            navigator.clipboard.writeText(this.urls[this.i]).then(
+                () => toast('Ссылка скопирована'),
+                () => toast('Не удалось скопировать', 'err')
+            );
+        } else if ((a === 'prev' || a === 'next') && n > 1) {
+            this.i = (this.i + (a === 'next' ? 1 : -1) + n) % n;
+            this.show();
+        }
+    },
+    close() {
+        if (!this.host) return;
+        removeEventListener('keydown', this.onKey, true);
+        removeEventListener('resize', this.onResize);
+        this.host.remove();
+        this.host = this.img = null;
+        this.token = null;
+    }
+};
+
 // запуск
 // переименованная шапка = метка «Неофициальная копия»
 const Integrity = {
@@ -10368,6 +10689,7 @@ function boot() {
             () => {
                 Age.start();
                 Nicks.start();
+                Lightbox.start();
                 QNav.watchCounts();
             },
             { timeout: 1500 }
