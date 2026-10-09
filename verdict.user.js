@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.9.8
+// @version      1.9.9
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -39,7 +39,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.9.8', // подставляет build.sh из @version
+    version: '1.9.9', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -384,6 +384,9 @@ const Bus = {
     _h: {},
     on(ev, fn) {
         (this._h[ev] = this._h[ev] || []).push(fn);
+    },
+    off(ev, fn) {
+        this._h[ev] = (this._h[ev] || []).filter(f => f !== fn);
     },
     emit(ev, data) {
         (this._h[ev] || []).forEach(fn => {
@@ -3761,10 +3764,13 @@ class LiveWall {
             Object.assign({ canvas: off, seed: this.seed, pal: this.pal, speed: this.speed }, this.size()),
             [off]
         );
-        this.poll = setInterval(() => {
+        // скорость меняется только из настроек — без опроса каждые полсекунды
+        this.poll = 0;
+        this.onSettings = () => {
             const sp = Settings.get().theme.liveSpeed;
             if (sp !== this.speed && this.worker) this.worker.postMessage({ speed: (this.speed = sp) });
-        }, 500);
+        };
+        Bus.on('settings', this.onSettings);
         return true;
     }
     // экономный режим: меньше пикселей и кадров, браузер растягивает холст сам
@@ -3793,6 +3799,7 @@ class LiveWall {
     frame(now) {
         if (!this.cv) return;
         this.raf = requestAnimationFrame(this.frame);
+        if (document.hidden) return;
         const speed = Settings.get().theme.liveSpeed;
         if (!speed || now - this.last < 1000 / 30) return;
         const dt = this.last ? Math.min(0.1, (now - this.last) / 1000) : 0;
@@ -3802,7 +3809,7 @@ class LiveWall {
     }
     stop() {
         cancelAnimationFrame(this.raf);
-        clearInterval(this.poll);
+        if (this.onSettings) Bus.off('settings', this.onSettings);
         if (this.worker) this.worker.terminate();
         this.worker = null;
         removeEventListener('resize', this.resize);
@@ -4304,8 +4311,8 @@ const Fx = {
                 return;
             }
             this.raf = requestAnimationFrame(step);
-            // экономный: 30 fps
-            if (this.k < 1 && this.last && now - this.last < 31) return;
+            // 30 fps (экономный — 24): эффектам больше не нужно
+            if (this.last && now - this.last < (this.k < 1 ? 41 : 31)) return;
             const dt = Math.min(0.05, (now - (this.last || now)) / 1000);
             this.last = now;
             this.frame(dt, now);
@@ -4501,7 +4508,8 @@ class LiveScene {
         if (!this.cv) return;
         this.raf = requestAnimationFrame(this.frame);
         if (document.hidden) return;
-        if (this.k < 1 && this.last && now - this.last < 31) return;
+        // фон — 30 кадров в секунду (в экономном режиме 24): глазу хватает, процессор вдвое свободнее
+        if (this.last && now - this.last < (this.k < 1 ? 41 : 31)) return;
         const dt = this.last ? Math.min(0.05, (now - this.last) / 1000) : 0;
         this.last = now;
         const t = now / 1000,
