@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.11
+// @version      1.10.12
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.11', // подставляет build.sh из @version
+    version: '1.10.12', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -7049,7 +7049,13 @@ const QNav = {
                 const a = document.createElement('a');
                 a.className = 'vd-qn' + (this.active(p.url) ? ' on' : '');
                 a.href = new URL(p.url, location.origin).href;
-                a.textContent = p.name;
+                // раздел сервера («Сервер №49 | KHABAROVSK») — компактный квадратик с номером, полное имя в подсказке
+                const srv = p.name.match(/^\s*сервер\s*№?\s*(\d{1,3})\b/i);
+                if (srv) {
+                    a.classList.add('vd-qn-sq');
+                    a.title = p.name;
+                    a.textContent = srv[1];
+                } else a.textContent = p.name;
                 a.insertAdjacentHTML('beforeend', this.badge([p]));
                 track.appendChild(a);
             }
@@ -10095,7 +10101,8 @@ const Lightbox = {
     real(href) {
         try {
             const u = new URL(href, location.href);
-            if (u.hostname === location.hostname) {
+            // переходник может быть и на другом адресе (away.…, link.…): разворачиваем любой, где внутри лежит ссылка
+            if (u.hostname === location.hostname || /[?&/=](aHR0c|https?(:|%3A))/i.test(u.pathname + u.search)) {
                 const web = v => (v && /^https?:\/\/[^\s]+$/i.test(v) ? v : null);
                 for (const [, v] of u.searchParams) {
                     if (web(v)) return v;
@@ -10119,15 +10126,18 @@ const Lightbox = {
     // адрес ссылки в посте: настоящий, а если форум спрятал его в своём переходнике — из текста ссылки
     url(a) {
         const r = this.real(a.href);
+        let rh = '';
         try {
-            if (new URL(r).hostname !== location.hostname) return r;
+            rh = new URL(r).hostname;
         } catch {
             return r;
         }
+        // ссылка ведёт на сам форум или его переходник (blackrussia.online) — настоящий адрес в тексте ссылки
+        if (rh !== location.hostname && !/(^|\.)blackrussia\.online$/i.test(rh)) return r;
         for (const v of [a.dataset.url, a.textContent && a.textContent.trim()])
             if (v && /^https?:\/\/[^\s]+$/i.test(v)) {
                 try {
-                    if (new URL(v).hostname !== location.hostname) return v;
+                    if (!/(^|\.)blackrussia\.online$/i.test(new URL(v).hostname)) return v;
                 } catch {
                     /* не адрес */
                 }
@@ -10244,6 +10254,8 @@ const Lightbox = {
                 if (!a || a.closest('.fr-box')) return;
                 const st = Settings.get();
                 const ext = this.external(this.url(a));
+                // для разбора проблем: в консоли (F12) видно, как скрипт понял ссылку
+                console.info('VERDICT ссылка:', a.href, '→', this.url(a), '| фото:', !!this.resolve(this.url(a), false), '| просмотр:', st.imgPreview);
                 const post = a.closest('.message-body, .message-content, .message-userContent, .bbWrapper') || document.body;
                 if (st.imgPreview && this.resolve(this.url(a), false) && !a.closest('.message-signature')) {
                     e.preventDefault();
@@ -10633,6 +10645,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.12', ['Раздел сервера в быстрой навигации — компактный квадратик с номером (например «49»)', 'Быстрый просмотр узнаёт ссылки, спрятанные в переходник на любом адресе']],
     ['1.10.11', ['Быстрый просмотр: фото с wertigo.ru и других файлообменников', 'Ссылки, которые форум прячет в свой переходник, тоже открываются просмотром']],
     ['1.10.10', ['Быстрый просмотр фото надёжнее: значок «глаз» и окно просмотра работают, даже если другая часть скрипта дала сбой']],
     ['1.10.9', ['Исправлено: на iPhone (Userscripts) оригинальный скрипт помечался «Неофициальной копией»']],
@@ -10774,6 +10787,9 @@ const BASE_CSS = `
 .vd-qn .vd-qn-n { margin-left: 2px; }
 .vd-qn-n.hot { background: color-mix(in srgb, var(--vd-acc, #e5484d) 75%, transparent); color: #fff; font-weight: 700; }
 #vd-qnav-menu a { display: flex !important; align-items: center; justify-content: space-between; gap: 14px; }
+.vd-qn.vd-qn-sq { position: relative; justify-content: center; margin-right: 6px; min-width: 30px; padding: 0 6px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.vd-qnav--top .vd-qn.vd-qn-sq, .vd-qnav--sub .vd-qn.vd-qn-sq { min-width: 24px; padding: 0 5px; }
+.vd-qn-sq .vd-qn-n { position: absolute; top: -2px; right: -8px; margin: 0; height: 14px; min-width: 14px; font-size: 9px; padding: 0 3px; }
 .vd-qn-add { border-style: dashed; color: #9aa0ab !important; background: transparent; }
 #vd-qnav-menu { position: fixed; z-index: 2147482000; min-width: 220px; padding: 6px; border-radius: 12px; background: rgba(18,20,26,.96); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 20px 50px -12px rgba(0,0,0,.8); backdrop-filter: blur(16px); }
 #vd-qnav-menu a { display: block; padding: 9px 12px; border-radius: 8px; color: #e4e6eb !important; text-decoration: none !important; font-size: 13px; }
