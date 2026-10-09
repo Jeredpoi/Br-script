@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.0
+// @version      1.10.1
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -49,7 +49,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.0', // подставляет build.sh из @version
+    version: '1.10.1', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9688,7 +9688,20 @@ const Updater = {
         if (this._toast) this._toast.remove();
         this._toast = null;
         window.open(`${BRAND.update}/verdict.user.js?t=${Date.now()}`, '_blank', 'noopener');
-        toast('В открывшейся вкладке нажми «Обновить», потом перезагрузи форум', 'info');
+        toast('В открывшейся вкладке нажми «Обновить» — форум перезагрузится сам', 'info');
+        // вернулся на вкладку форума после установки — перезагрузить, чтобы заработала новая версия
+        Store.set('updAwait', Date.now());
+        const back = () => {
+            if (document.hidden) return;
+            const at = Store.get('updAwait', 0);
+            if (at && Date.now() - at > 2500 && Date.now() - at < 30 * 60e3) {
+                document.removeEventListener('visibilitychange', back);
+                removeEventListener('focus', back);
+                location.reload();
+            }
+        };
+        document.addEventListener('visibilitychange', back);
+        addEventListener('focus', back);
     },
     // уведомление, разосланное разработчиком вручную: спрашиваем почту не чаще раза в 5 минут
     async news(force) {
@@ -10145,6 +10158,7 @@ const Lightbox = {
                 <button data-a="fit" title="По размеру окна (двойной клик)">По размеру</button>
                 <button data-a="copy">Копировать ссылку</button>
                 <button data-a="tab">Открыть оригинал</button>
+                <button data-a="off" title="Ссылки снова будут открываться в новой вкладке. Включить — в настройках">Выключить просмотр</button>
                 <button data-a="x" title="Закрыть (Esc)">✕</button>
             </div>
             <button class="nav prev" data-a="prev">‹</button><button class="nav next" data-a="next">›</button>
@@ -10283,6 +10297,13 @@ const Lightbox = {
         if (a === 'x') this.close();
         else if (a === 'fit') this.fit();
         else if (a === 'tab') window.open(this.urls[this.i], '_blank', 'noopener');
+        else if (a === 'off') {
+            Settings.patch(x => {
+                x.imgPreview = false;
+            });
+            this.close();
+            toast('Быстрый просмотр выключен. Включить — в настройках VERDICT', 'info');
+        }
         else if (a === 'copy') {
             navigator.clipboard.writeText(this.urls[this.i]).then(
                 () => toast('Ссылка скопирована'),
@@ -10300,6 +10321,49 @@ const Lightbox = {
         this.host.remove();
         this.host = this.img = null;
         this.token = null;
+    }
+};
+
+// «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
+const CHANGES = [
+    ['1.10.1', ['Окно «Что нового» после обновления', 'После установки обновления форум перезагружается сам', 'В просмотре фото — кнопка «Выключить просмотр»']],
+    ['1.10.0', ['Быстрый просмотр фото по ссылкам: Imgur, prnt.sc, ibb.co, прямые картинки', 'Масштаб колесом, перетаскивание, листание ← →', 'Фон снова 60 кадров в секунду']],
+    ['1.9.9', ['Оптимизация фона и эффектов, без отрисовки в скрытой вкладке']],
+    ['1.9.8', ['«Тема на рассмотрении.» вместо «Тема взята на рассмотрение.»']],
+    ['1.9.7', ['Деловой стиль ответов: «Здравствуйте, Ник.», «Передано …», официальные формулировки']]
+];
+const WhatsNew = {
+    start() {
+        // до 1.10.1 версия не запоминалась: есть свои настройки — значит, это обновление с 1.10.0
+        const seen = Store.get('seenVersion', null) || (Store.get('packs', null) ? '1.10.0' : null);
+        Store.set('seenVersion', BRAND.version);
+        Store.set('updAwait', null);
+        // первая установка — без окна; после обновления — что изменилось с прошлой версии
+        if (!seen || seen === BRAND.version || !Updater.newer(BRAND.version, seen)) return;
+        const list = CHANGES.filter(([v]) => Updater.newer(v, seen) && !Updater.newer(v, BRAND.version));
+        if (list.length) setTimeout(() => this.show(seen, list), 1200);
+    },
+    show(from, list) {
+        const body = list
+            .map(
+                ([v, items]) => `<div class="card" style="margin-bottom:10px"><b>Версия ${U.esc(v)}</b>
+                <ul style="margin:8px 0 0 18px;padding:0">${items.map(t => `<li style="margin:3px 0">${U.esc(t)}</li>`).join('')}</ul></div>`
+            )
+            .join('');
+        const scrim = Layer.add(
+            U.h(`<div class="scrim"><div class="modal sm" style="width:min(560px,100%)">
+            <div class="m-head"><span class="vic" style="--c:var(--acc);width:34px;height:34px;border-radius:10px">${icon('logo', 18)}</span>
+              <div><div class="m-title">VERDICT обновлён до ${U.esc(BRAND.version)}</div>
+                <div class="m-sub">Было: ${U.esc(from)} · что нового</div></div>
+              <span style="flex:1"></span><button class="icon-btn" data-a="x">${icon('x')}</button></div>
+            <div class="pane">${body}
+              <div class="btns" style="margin-top:6px"><span style="flex:1"></span><button class="btn pri" data-a="ok">Понятно</button></div>
+            </div></div></div>`)
+        );
+        const close = () => scrim.remove();
+        scrim.querySelector('[data-a="x"]').onclick = close;
+        scrim.querySelector('[data-a="ok"]').onclick = close;
+        scrim.addEventListener('mousedown', e => e.target === scrim && close());
     }
 };
 
@@ -10690,6 +10754,7 @@ function boot() {
                 Age.start();
                 Nicks.start();
                 Lightbox.start();
+                WhatsNew.start();
                 QNav.watchCounts();
             },
             { timeout: 1500 }
