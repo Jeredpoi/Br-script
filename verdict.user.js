@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.1
+// @version      1.10.2
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -49,7 +49,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.1', // подставляет build.sh из @version
+    version: '1.10.2', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5075,7 +5075,7 @@ input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var
   .facts { display: none; }
   .modal { height: 92vh; }
   .scrim { padding-top: 3vh; }
-  .launch { left: auto; right: 12px; bottom: 12px; width: 38px; height: 38px; border-radius: 12px; }
+  .launch { left: 12px; bottom: 14px; width: 40px; height: 40px; border-radius: 12px; }
   .toasts { top: 12px; bottom: auto; right: 12px; left: 12px; align-items: stretch; }
 }
 `;
@@ -5303,6 +5303,22 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 
 .message-cell--user { border-top-left-radius: 16px; border-bottom-left-radius: 16px; }
 /* «Поделиться» и прочие блоки после постов не прилипают */
 .blockMessage, .block-outer--after, .shareButtons { margin-top: 14px !important; }
+/* телефон: карточки ровно по краям, текст не прилипает к рамке, блоки боковой колонки не налезают друг на друга */
+@media (max-width: 760px) {
+  .block-container, .blockMessage, .shareButtons { margin-left: 0 !important; margin-right: 0 !important; }
+  .p-body-sidebar .block, .p-body-sidebar .uix_sidebarInner > .block { margin: 0 0 12px !important; }
+  .p-body-sidebar .block-container { overflow: hidden; }
+  .block-minorHeader, .block-header { margin: 0 !important; padding-left: 16px !important; padding-right: 16px !important; }
+  .p-body-sidebar .block-body { padding: 0 !important; }
+  .p-body-sidebar .block-row, .p-body-sidebar .block-footer { padding-left: 16px !important; padding-right: 16px !important; }
+  .p-body-sidebar .block-row { padding-top: 10px !important; padding-bottom: 12px !important; }
+  .p-body-sidebar .blockLink { padding: 10px 16px !important; margin: 0 !important; border-radius: 0 !important; }
+  .p-body-sidebar .block-body > .blockLink + .blockLink { border-top: 1px solid var(--vd-line) !important; }
+  .shareButtons { padding: 12px 16px !important; border-radius: 16px !important; }
+  .block-outer, .block-outer--after { padding-left: 0 !important; padding-right: 0 !important; }
+  /* место внизу под кнопки «наверх» и VERDICT */
+  .p-footer { padding-bottom: 70px !important; }
+}
 .fr-toolbar { background: rgba(255,255,255,.03) !important; }
 .input:focus, .fr-box.fr-focus, .input.is-focused { border-color: color-mix(in srgb, var(--vd-acc) 70%, transparent) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--vd-acc) 22%, transparent) !important; }
 
@@ -10326,6 +10342,7 @@ const Lightbox = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.2', ['Ровная вёрстка на телефоне: отступы в карточках, блоки не налезают друг на друга', 'Кнопка VERDICT на телефоне — слева внизу']],
     ['1.10.1', ['Окно «Что нового» после обновления', 'После установки обновления форум перезагружается сам', 'В просмотре фото — кнопка «Выключить просмотр»']],
     ['1.10.0', ['Быстрый просмотр фото по ссылкам: Imgur, prnt.sc, ibb.co, прямые картинки', 'Масштаб колесом, перетаскивание, листание ← →', 'Фон снова 60 кадров в секунду']],
     ['1.9.9', ['Оптимизация фона и эффектов, без отрисовки в скрытой вкладке']],
