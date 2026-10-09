@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.8
+// @version      1.10.9
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.8', // подставляет build.sh из @version
+    version: '1.10.9', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10594,6 +10594,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.9', ['Исправлено: на iPhone (Userscripts) оригинальный скрипт помечался «Неофициальной копией»']],
     ['1.10.8', ['На странице «Пожалуйста, будьте осторожны» скрипт сам моментально нажимает «Перейти на сайт»']],
     ['1.10.7', ['Быстрый просмотр открывает фото с любых сайтов: известные хостинги, Яндекс Диск, Google Диск, прямые ссылки без расширения', 'Внешние ссылки в постах открываются сразу, без страницы «Будьте осторожны»']],
     ['1.10.6', ['Меню на телефоне — прозрачное стекло, пункты в виде кнопок в стиле темы']],
@@ -10651,10 +10652,12 @@ const Integrity = {
         try {
             const info = typeof GM_info !== 'undefined' ? GM_info.script : null;
             if (!info) return (this._ok = true);
+            // менеджеры скриптов на телефоне (Userscripts в Safari) отдают не все поля шапки:
+            // пустое поле — не повод считать копию неофициальной, сверяем только то, что передано
             this._ok =
-                /^VERDICT\b/.test(info.name || '') &&
-                info.namespace === BRAND.namespace &&
-                (info.author || BRAND.author) === BRAND.author;
+                (!info.name || /^VERDICT\b/.test(info.name)) &&
+                (!info.namespace || info.namespace === BRAND.namespace) &&
+                (!info.author || info.author === BRAND.author);
         } catch {
             this._ok = true;
         }
