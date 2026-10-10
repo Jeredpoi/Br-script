@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.15
+// @version      1.10.16
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.15', // подставляет build.sh из @version
+    version: '1.10.16', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10544,7 +10544,7 @@ const Lightbox = {
             } else if ((e.target === bg || e.target === stage) && this.tool === 'move' && !this.moved) this.close();
         });
         stage.addEventListener('dblclick', e => {
-            if (this.tool !== 'move') return;
+            if (this.tool !== 'move' || !this.ready) return;
             if (this.z < this.fitZ * 1.01) this.zoomAt(1, e.clientX, e.clientY, true);
             else this.fit(true);
         });
@@ -10552,7 +10552,7 @@ const Lightbox = {
             'wheel',
             e => {
                 e.preventDefault();
-                this.zoomAt(this.z * (e.deltaY < 0 ? 1.18 : 1 / 1.18), e.clientX, e.clientY);
+                if (this.ready) this.zoomAt(this.z * (e.deltaY < 0 ? 1.18 : 1 / 1.18), e.clientX, e.clientY);
             },
             { passive: false }
         );
@@ -10566,7 +10566,7 @@ const Lightbox = {
                 e.preventDefault();
                 return this.fit(true);
             }
-            if (e.button !== 0 || !this.img.naturalWidth) return;
+            if (e.button !== 0 || !this.ready) return;
             if (this.tool === 'text') return this.textAt(e);
             e.preventDefault();
             stage.setPointerCapture(e.pointerId);
@@ -10792,6 +10792,9 @@ const Lightbox = {
         msg.innerHTML = '<div class="spin"></div>';
         msg.style.display = '';
         this.img.style.opacity = this.svg.style.opacity = '0';
+        // пока новое фото не загрузилось, рисовать и масштабировать нельзя: пометки легли бы на старое
+        this.ready = false;
+        this.img.removeAttribute('src');
         const token = (this.token = {});
         const el = [...document.querySelectorAll('a[data-vd-img]')].find(x => this.url(x) === href);
         const src = (el && el.dataset.vdImg) || (await this.resolve(href)) || (await this.probe(this.real(href)));
@@ -10801,6 +10804,7 @@ const Lightbox = {
         this.img.onload = () => {
             if (token !== this.token) return;
             msg.style.display = 'none';
+            this.ready = true;
             this.img.style.opacity = this.svg.style.opacity = '1';
             this.fit();
             this.draw();
@@ -10828,7 +10832,7 @@ const Lightbox = {
     },
     // фото целиком и по центру; smooth — плавно, когда возвращаем из неудачного положения
     fit(smooth) {
-        if (!this.img || !this.img.naturalWidth) return;
+        if (!this.img || !this.ready) return;
         const w = this.img.naturalWidth,
             h = this.img.naturalHeight;
         this.fitZ = Math.min(1, (innerWidth - 120) / w, (innerHeight - 170) / h);
@@ -11004,6 +11008,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.16', ['Просмотр фото: пока следующее фото грузится, пометки не ложатся на предыдущее']],
     ['1.10.15', ['Передача — только строка «Передано Главному администратору.» без приветствия и «Ожидайте ответа»; тема помечается префиксом', 'Дубли ответов передачи после 1.10.14 убраны', 'Настройки: «Темы», «Цвета» и «Фон» — одна страница с вкладками', 'Подвал форума: значки блоков больше не перекрываются полосой']],
     ['1.10.14', ['Строгие формулировки передачи: «Передано Главному администратору.», «Передано техническому специалисту.» — старые и свои варианты исправлены сами']],
     ['1.10.13', ['Пометки на фото доказательств: ручка, маркер, рамка, стрелка, подпись, 5 цветов, отмена (Ctrl+Z). Сохраняются — откроешь фото снова, они на месте', 'Заметка к каждому фото', 'Отдалил колесом до конца или нажал колесо — фото встаёт по центру', 'Убрана кнопка «Выключить просмотр» из окна фото — выключается в настройках']],
