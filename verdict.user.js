@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.16
+// @version      1.10.17
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.16', // подставляет build.sh из @version
+    version: '1.10.17', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -1745,8 +1745,20 @@ const Packs = {
                 RENAME.forEach(([from, to]) => {
                     const old = p.items.find(x => x.title === from);
                     if (!old) return;
-                    // копия под новым названием, которую добавила 1.10.14, — лишняя
-                    p.items = p.items.filter(x => !(x.title === to && x !== old));
+                    const dup = p.items.find(x => x.title === to && x !== old);
+                    const hidden = Settings.get().hiddenItems || [];
+                    // копия под новым названием из 1.10.14: свою правку в ней не теряем
+                    const dupEdited = dup && !['', 'Ожидайте ответа в этой теме.'].includes(String(dup.text || '').trim());
+                    if (dup && dupEdited) {
+                        p.items = p.items.filter(x => x !== old);
+                        return;
+                    }
+                    if (dup) {
+                        p.items = p.items.filter(x => x !== dup);
+                        // старый был скрыт, а копия видна — значит, пользуется копией: ответ оставляем видимым
+                        if (hidden.includes(old.id) && !hidden.includes(dup.id))
+                            Settings.patch(x => (x.hiddenItems = x.hiddenItems.filter(id => id !== old.id)));
+                    }
                     old.title = to;
                 });
                 p.items.forEach(x => {
@@ -2350,17 +2362,21 @@ const Answer = {
         const found = item.id && Packs.item(item.id);
         const kind =
             ctx.kind || (found && found.pack.kind) || (item.id && String(item.id).startsWith('bio-') ? 'bio' : '');
-        const rawTail = item.tail !== undefined ? item.tail : Tails.get(kind, item.verdict);
+        const isTransfer = TRANSFER_VERDICTS.includes(item.verdict) && !body;
+        let rawTail = item.tail !== undefined ? item.tail : Tails.get(kind, item.verdict);
+        // у передачи без текста строка «Передано …» — весь ответ: «-» (без итоговой строки) тут не годится
+        if (isTransfer && String(rawTail).trim() === '-') rawTail = Tails.std(kind, item.verdict);
         const tailText = String(rawTail).trim() === '-' ? '' : this.fill(rawTail, v).trim();
         const tail = tailText
             ? `[COLOR=${pal[item.verdict] || pal[VERDICT_BASE[item.verdict]] || pal.none}][B]${tailText}[/B][/COLOR]`
             : '';
         // деловой стиль: всегда «Здравствуйте», без «доброй ночи»
-        const bare = TRANSFER_VERDICTS.includes(item.verdict) && !body;
+        // передача — только строка «Передано …»: без приветствия, баннера и подписи
+        const bare = isTransfer;
         const greet = s.greet && s.style !== 'compact' && !bare ? `Здравствуйте, ${v.user}.` : '';
-        const sig = s.signature ? `[I]С уважением, ${s.signature}.[/I]` : '';
+        const sig = s.signature && !bare ? `[I]С уважением, ${s.signature}.[/I]` : '';
         const blocks = [];
-        if (s.banner) blocks.push(`[IMG]${s.banner}[/IMG]`);
+        if (s.banner && !bare) blocks.push(`[IMG]${s.banner}[/IMG]`);
 
         if (s.style === 'card') {
             if (greet) blocks.push(greet);
@@ -5109,7 +5125,7 @@ input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var
 .fxbtn.on { border-color: color-mix(in srgb, var(--acc) 60%, transparent); background: var(--acc-a); }
 
 /* уведомления, лаунчер */
-.toasts { position: fixed; z-index: 2147483100; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.toasts { position: fixed; z-index: 2147483647; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .toast { display: flex; align-items: center; gap: 10px; padding: 11px 15px 11px 11px; border-radius: 12px; background: color-mix(in srgb, var(--bg-3) calc(var(--ui-alpha, .96) * 100%), transparent); backdrop-filter: blur(22px) saturate(1.3); -webkit-backdrop-filter: blur(22px) saturate(1.3); box-shadow: var(--sh); font-weight: 650; animation: pop .2s var(--ease); max-width: 400px; }
 .launch { position: fixed; z-index: 2147482980; left: 18px; bottom: 18px; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: color-mix(in srgb, var(--acc) 75%, #fff); background: color-mix(in srgb, var(--acc) 8%, rgba(12,13,17,.88)); box-shadow: 0 0 0 1px rgba(255,255,255,.06); opacity: .6; transition: opacity .2s, transform .2s var(--ease); }
 .launch:hover { opacity: 1; transform: translateY(-1px); }
@@ -5554,7 +5570,7 @@ function itemRow(item, pack, opts = {}) {
     const badge = fit && fit.strong ? '<span class="fit-b" title="Рекомендуем">★</span>' : '';
     return U.h(`<button class="item ${fit ? 'fit' + (fit.strong ? ' rec' : '') : ''}" style="--c:${verdictOf(item).color}" ${fit ? `title="${U.esc(fit.why)}"` : ''}>
         ${vicon(item.verdict, true)}
-        <span class="t"><b>${badge}${U.esc(item.title)}</b><small>${U.esc(opts.sub || (fit ? fit.why : '') || plain || 'Свой текст')}</small></span>
+        <span class="t"><b>${badge}${U.esc(item.title)}</b><small>${U.esc(opts.sub || (fit ? fit.why : '') || plain || (TRANSFER_VERDICTS.includes(item.verdict) ? item.tail || Tails.get('', item.verdict) : 'Свой текст'))}</small></span>
         ${item.key ? `<span class="kbd">/${U.esc(item.key)}</span>` : ''}
         ${opts.canEdit ? `<span class="edit" title="Изменить текст ответа">${icon('edit', 14)}</span>` : ''}
         ${opts.canHide ? `<span class="hide" title="Скрыть ответ (вернуть: Настройки › Должность)">${icon('eyeOff', 14)}</span>` : ''}
@@ -7905,7 +7921,7 @@ const SettingsUI = {
                 text = f('text').value;
             // у передачи текста может не быть: ответ — только строка «Передано …»
             const tailOnly = TRANSFER_VERDICTS.includes(f('verdict') ? f('verdict').value : (item || {}).verdict);
-            if (!title || (!text.trim() && !tailOnly)) {
+            if (!title || (!text.trim() && (!tailOnly || f('tail').value.trim() === '-'))) {
                 toast('Заполните название и текст', 'err');
                 return;
             }
@@ -10541,9 +10557,14 @@ const Lightbox = {
             if (b) {
                 e.stopPropagation();
                 this.act(b.dataset.a);
-            } else if ((e.target === bg || e.target === stage) && this.tool === 'move' && !this.moved) this.close();
+            } else if ((e.target === bg || e.target === stage) && this.tool === 'move' && !this.moved) {
+                // закрываем с паузой: двойной клик (масштаб) не должен закрывать окно
+                clearTimeout(this._closeT);
+                this._closeT = setTimeout(() => this.close(), 260);
+            }
         });
         stage.addEventListener('dblclick', e => {
+            clearTimeout(this._closeT);
             if (this.tool !== 'move' || !this.ready) return;
             if (this.z < this.fitZ * 1.01) this.zoomAt(1, e.clientX, e.clientY, true);
             else this.fit(true);
@@ -10556,12 +10577,42 @@ const Lightbox = {
             },
             { passive: false }
         );
+        // колесо над панелями окна не листает форум под ним (в заметке — листает саму заметку)
+        bg.addEventListener(
+            'wheel',
+            e => {
+                if (!e.composedPath().some(n => n && n.tagName === 'TEXTAREA')) e.preventDefault();
+            },
+            { passive: false }
+        );
         // браузер не должен «перетаскивать картинку» — иначе рисование и сдвиг обрываются
         stage.addEventListener('dragstart', e => e.preventDefault());
         // нажатие колеса — фото снова по центру и целиком
         stage.addEventListener('mousedown', e => e.button === 1 && e.preventDefault());
         stage.addEventListener('auxclick', e => e.button === 1 && e.preventDefault());
+        // пальцы на экране: два пальца — масштаб щипком, рисует только первый
+        this.touch = new Map();
+        const pinchOf = () => {
+            const [a, b] = [...this.touch.values()];
+            return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+        };
         stage.addEventListener('pointerdown', e => {
+            this.touch.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (this.touch.size === 2 && this.ready) {
+                // начался щипок: недорисованное — отменить, сдвиг — прекратить
+                if (this.cur) {
+                    this.shapes.pop();
+                    this.hist.pop();
+                    this.cur = null;
+                    this.draw();
+                }
+                this.drag = null;
+                this.moved = true;
+                const p = pinchOf();
+                this.pinch = { d0: p.d, z0: this.z, mx: p.mx, my: p.my };
+                return;
+            }
+            if (this.touch.size > 1) return;
             if (e.button === 1) {
                 e.preventDefault();
                 return this.fit(true);
@@ -10583,6 +10634,24 @@ const Lightbox = {
             stage.classList.add('drag');
         });
         stage.addEventListener('pointermove', e => {
+            if (this.touch.has(e.pointerId)) this.touch.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (this.pinch && this.touch.size >= 2) {
+                const p = pinchOf();
+                // сдвиг вместе с пальцами, масштаб — по расстоянию между ними
+                this.x += p.mx - this.pinch.mx;
+                this.y += p.my - this.pinch.my;
+                this.pinch.mx = p.mx;
+                this.pinch.my = p.my;
+                const z = Math.min(8, this.pinch.z0 * (p.d / this.pinch.d0));
+                if (z > this.fitZ) {
+                    this.x = p.mx - ((p.mx - this.x) * z) / this.z;
+                    this.y = p.my - ((p.my - this.y) * z) / this.z;
+                    this.z = z;
+                }
+                this.apply();
+                return;
+            }
+            if (this.touch.size > 1) return;
             if (this.cur) {
                 const p = this.pt(e),
                     pts = this.cur.p;
@@ -10601,7 +10670,17 @@ const Lightbox = {
             this.y = e.clientY - this.drag.y;
             this.apply();
         });
-        const up = () => {
+        const up = e => {
+            this.touch.delete(e.pointerId);
+            if (this.pinch) {
+                if (this.touch.size < 2) {
+                    this.pinch = null;
+                    // отпустили щипок меньше исходного размера — фото снова целиком и по центру
+                    if (this.z <= this.fitZ * 1.02) this.fit(true);
+                    setTimeout(() => (this.moved = false), 0);
+                }
+                return;
+            }
             if (this.cur) {
                 const s = this.cur;
                 this.cur = null;
@@ -10630,22 +10709,34 @@ const Lightbox = {
             // печатаешь в заметке или подписи — клавиши твои
             const typing = e.composedPath().some(n => n && (n.tagName === 'TEXTAREA' || n.tagName === 'INPUT'));
             if (typing) {
-                if (e.key === 'Escape' && e.composedPath()[0] === ta) ta.blur();
+                // Esc в заметке только снимает фокус и не закрывает окна скрипта
+                if (e.key === 'Escape' && e.composedPath()[0] === ta) {
+                    ta.blur();
+                    e.stopPropagation();
+                }
                 return;
             }
-            const k = e.key.toLowerCase();
+            const k = (e.key || '').toLowerCase();
             const keys = { v: 'move', м: 'move', p: 'pen', з: 'pen', m: 'mark', ь: 'mark', r: 'rect', к: 'rect', a: 'arrow', ф: 'arrow', t: 'text', е: 'text' };
             if (e.key === 'Escape') this.close();
             else if (e.key === 'ArrowLeft') this.act('prev');
             else if (e.key === 'ArrowRight') this.act('next');
-            else if (e.key === '0') this.fit(true);
+            else if (e.key === '0' && !e.ctrlKey && !e.metaKey && !e.altKey) this.fit(true);
             else if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я')) this.act('undo');
             else if (!e.ctrlKey && !e.metaKey && !e.altKey && keys[k]) this.setTool(keys[k]);
             else return;
             e.preventDefault();
             e.stopPropagation();
         };
-        this.onResize = U.debounce(() => this.fit(), 120);
+        // окно изменилось (на телефоне — открылась клавиатура): приближенное фото не сбрасываем
+        this.onResize = U.debounce(() => {
+            if (!this.img || !this.img.naturalWidth) return;
+            const wasFit = this.z <= this.fitZ * 1.01;
+            const w = this.img.naturalWidth,
+                h = this.img.naturalHeight;
+            if (wasFit) return this.fit();
+            this.fitZ = Math.min(1, (innerWidth - 120) / w, (innerHeight - 170) / h);
+        }, 120);
         addEventListener('keydown', this.onKey, true);
         addEventListener('resize', this.onResize);
         this.setTool(this.tool);
@@ -10915,28 +11006,42 @@ const Lightbox = {
 // страница «Пожалуйста, будьте осторожны!» перед внешней ссылкой: сразу переходим по ссылке, без 30 секунд ожидания
 const LeaveSkip = {
     done: false,
-    // кнопка «Перейти на сайт» на странице «Пожалуйста, будьте осторожны!»
-    button() {
-        const els = document.querySelectorAll('a, button, [role="button"], .button, input[type="button"], input[type="submit"]');
-        for (const el of els) if (/перейти\s+на\s+сайт/i.test(el.textContent || el.value || '')) return el;
+    // только настоящая страница-переходник форума (/redirect?to=…), а не любой пост с такими словами
+    onPage() {
+        return /^\/(redirect|proxy\.php|goto|link)(\/|$|\?)/i.test(location.pathname) || /^\/redirect/i.test(location.pathname);
+    },
+    // адрес перехода — из параметра страницы (to=… обычный или в base64), не из текста
+    target() {
+        const q = new URLSearchParams(location.search);
+        for (const k of ['to', 'url', 'link']) {
+            const v = q.get(k);
+            if (!v) continue;
+            if (/^https?:\/\//i.test(v)) return v;
+            try {
+                const d = atob(v.replace(/-/g, '+').replace(/_/g, '/'));
+                if (/^https?:\/\/\S+$/i.test(d)) return d;
+            } catch {
+                /* не base64 */
+            }
+        }
         return null;
     },
-    isWarning() {
-        const t = (document.body && document.body.textContent) || '';
-        return /будьте\s+осторожны/i.test(t) && /перенаправлен/i.test(t);
-    },
-    // запасной путь: ссылка из текста «Вы будете перенаправлены на сайт: …»
-    target() {
-        const m = ((document.body && document.body.innerText) || '').match(/перенаправлены\s+на\s+сайт:\s*(https?:\/\/\S+)/i);
-        return m && m[1];
+    // кнопка «Перейти на сайт» — в основном блоке страницы
+    button() {
+        const box = document.querySelector('.p-body-main, .p-body, main') || document.body;
+        if (!box) return null;
+        for (const el of box.querySelectorAll('a, button, [role="button"], .button, input[type="button"], input[type="submit"]'))
+            if (/перейти\s+на\s+сайт/i.test(el.textContent || el.value || '')) return el;
+        return null;
     },
     tryPass() {
-        if (this.done || !document.body || !this.isWarning()) return false;
+        if (this.done || !document.body) return false;
+        const url = this.target();
         const btn = this.button();
+        if (!url && !btn) return false;
+        this.done = true;
         if (btn) {
-            this.done = true;
-            // нажимаем кнопку сами — как будто нажал ты. Скрипт форума может повесить обработчик на кнопку
-            // чуть позже, поэтому жмём ещё раз, когда страница догрузится
+            // нажимаем кнопку сами — как будто нажал ты; скрипт форума может повесить обработчик позже — жмём ещё раз
             const press = () => {
                 const b = this.button();
                 if (b) b.click();
@@ -10945,23 +11050,19 @@ const LeaveSkip = {
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', press, { once: true });
             addEventListener('load', press, { once: true });
             [150, 400].forEach(t => setTimeout(press, t));
-            // кнопка не увела со страницы — переходим по адресу из кнопки или текста
-            setTimeout(() => {
-                const href = (btn.getAttribute && btn.getAttribute('href')) || this.target();
+        }
+        // кнопка не увела со страницы — переходим по адресу из параметра или кнопки
+        setTimeout(
+            () => {
+                const href = url || (btn && btn.getAttribute && btn.getAttribute('href'));
                 if (href && /^https?:\/\//i.test(href)) location.replace(href);
-            }, 900);
-            return true;
-        }
-        const url = this.target();
-        if (url) {
-            this.done = true;
-            location.replace(url);
-            return true;
-        }
-        return false;
+            },
+            btn ? 900 : 0
+        );
+        return true;
     },
     start() {
-        if (!Settings.get().skipLeave) return;
+        if (!Settings.get().skipLeave || !this.onPage()) return;
         if (this.tryPass()) return;
         // страница ещё грузится — ловим кнопку, как только она появится
         const mo = new MutationObserver(() => this.tryPass() && mo.disconnect());
@@ -11008,6 +11109,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.17', ['Безопасность: пропуск «Будьте осторожны» работает только на настоящей странице перехода — пост с такими словами больше не может увести на чужой сайт', 'Передача — без баннера и подписи, даже со своей пустой итоговой строкой', 'Просмотр фото на телефоне: масштаб двумя пальцами, рисует только один палец', 'Приближенное фото не сбрасывается при повороте экрана и открытии клавиатуры', 'Колесо над панелями просмотра не листает форум, уведомления видны поверх фото, двойной клик по фону не закрывает окно']],
     ['1.10.16', ['Просмотр фото: пока следующее фото грузится, пометки не ложатся на предыдущее']],
     ['1.10.15', ['Передача — только строка «Передано Главному администратору.» без приветствия и «Ожидайте ответа»; тема помечается префиксом', 'Дубли ответов передачи после 1.10.14 убраны', 'Настройки: «Темы», «Цвета» и «Фон» — одна страница с вкладками', 'Подвал форума: значки блоков больше не перекрываются полосой']],
     ['1.10.14', ['Строгие формулировки передачи: «Передано Главному администратору.», «Передано техническому специалисту.» — старые и свои варианты исправлены сами']],
