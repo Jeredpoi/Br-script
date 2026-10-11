@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.27
+// @version      1.10.28
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.27', // подставляет build.sh из @version
+    version: '1.10.28', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -11636,6 +11636,9 @@ h1, h2, h3, h4, h5, h6 { color: #fff !important; text-shadow: 0 0 22px color-mix
 .form-label, label { color: color-mix(in srgb, var(--vd-acc2) 55%, #fff) !important; }
 .form-control, .form-select, .input-group-text, .dp__input, .autoComplete_wrapper > input, textarea, select {
   background-color: rgba(0,0,0,.35) !important; color: #e8eaee !important; border: 1px solid var(--vd-line) !important; border-radius: 10px !important; }
+/* раскрытый список нативного <select> (категория и пр.): тёмный фон вместо белого, выбранный пункт — акцент */
+select option, select optgroup, option, optgroup { background-color: #14161c !important; color: #e8eaee !important; }
+option:checked, option:hover, option:focus { background: var(--vd-acc) !important; color: #fff !important; }
 .form-control::placeholder, .dp__input::placeholder { color: rgba(228,230,235,.4) !important; }
 .form-control:focus, .form-select:focus, .dp__input:focus { border-color: var(--vd-acc) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--vd-acc) 25%, transparent) !important; }
 .btn-primary, .btn-success { background: var(--vd-acc) !important; border-color: var(--vd-acc) !important; color: #fff !important; }
@@ -11643,9 +11646,13 @@ h1, h2, h3, h4, h5, h6 { color: #fff !important; text-shadow: 0 0 22px color-mix
 .dropdown-item { color: #e4e6eb !important; }
 .dropdown-item:hover, .dropdown-item.active { background: color-mix(in srgb, var(--vd-acc) 30%, transparent) !important; }
 /* таблица логов: строка записи — стекло, строка с описанием — темнее */
-#log-table, .table { --bs-table-bg: transparent; --bs-table-color: #e4e6eb; background: transparent !important; color: #e4e6eb !important; border-collapse: separate !important; border-spacing: 0 !important; }
+#log-table, .table { --bs-table-bg: transparent; --bs-table-color: #e4e6eb; --bs-table-striped-bg: transparent; --bs-table-striped-color: #e4e6eb; --bs-table-accent-bg: transparent; --bs-table-hover-bg: transparent; --bs-table-active-bg: transparent; background: transparent !important; color: #e4e6eb !important; border-collapse: separate !important; border-spacing: 0 !important; }
+/* строки без ожидаемых классов не должны оставаться светлыми (дефолт Bootstrap) */
+#log-table tbody td, .table tbody td { background-color: rgba(0,0,0,.3); }
+/* Bootstrap 5.3 заливает ячейки через inset box-shadow поверх фона — иначе строки остаются светлыми */
+#log-table td, #log-table th, .table td, .table th { box-shadow: none !important; --bs-table-bg-type: transparent; --bs-table-bg-state: transparent; }
 #log-table thead th, .table thead th { background: color-mix(in srgb, var(--vd-head) 80%, transparent) !important; color: color-mix(in srgb, var(--vd-acc2) 60%, #fff) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 45%, transparent) !important; }
-#log-table tr.first-row td { background: var(--vd-glass) !important; border-top: 1px solid var(--vd-line) !important; border-bottom: 0 !important; }
+#log-table tr.first-row td { background: linear-gradient(rgba(8,9,13,.42), rgba(8,9,13,.42)), var(--vd-glass) !important; border-top: 1px solid var(--vd-line) !important; border-bottom: 0 !important; }
 #log-table tr.second-row td { background: rgba(0,0,0,.32) !important; border-bottom: 1px solid var(--vd-line) !important; color: #cfd2d8 !important; }
 #log-table tr.first-row:hover td { background: color-mix(in srgb, var(--vd-acc) 16%, var(--vd-glass)) !important; }
 .td-category a { color: var(--vd-acc2) !important; }
