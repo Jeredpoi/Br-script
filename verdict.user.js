@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.25
+// @version      1.10.26
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.25', // подставляет build.sh из @version
+    version: '1.10.26', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9899,58 +9899,48 @@ const Mail = {
         }
         return u;
     },
+    // без cookies Google: при нескольких аккаунтах Google вместо ответа почты отдаёт свою страницу.
+    // Переадресацию на script.googleusercontent.com проходим сами, если менеджер скриптов её не прошёл
     call(body) {
-        return new Promise((res, rej) => {
-            if (!this.url()) return rej(new Error('Почта разработчика не настроена'));
-            if (typeof GM_xmlhttpRequest !== 'function')
-                return rej(new Error('Менеджер скриптов не даёт отправлять запросы'));
-            GM_xmlhttpRequest({
+        const req = o =>
+            new Promise(res =>
+                GM_xmlhttpRequest(
+                    Object.assign({ anonymous: true, timeout: 30000 }, o, {
+                        onload: r => res({ r }),
+                        onerror: () => res({ err: 'Нет связи с почтой' }),
+                        ontimeout: () => res({ err: 'Почта долго не отвечает' })
+                    })
+                )
+            );
+        const json = t => {
+            try {
+                return JSON.parse(t);
+            } catch {
+                return null;
+            }
+        };
+        return (async () => {
+            if (!this.url()) throw new Error('Почта разработчика не настроена');
+            if (typeof GM_xmlhttpRequest !== 'function') throw new Error('Менеджер скриптов не даёт отправлять запросы');
+            const a = await req({
                 method: 'POST',
                 url: this.url(),
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                data: JSON.stringify(body),
-                timeout: 30000,
-                onload: r => {
-                    let j = null;
-                    try {
-                        j = JSON.parse(r.responseText);
-                    } catch {
-                        /* не JSON */
-                    }
-                    if (!j) return rej(new Error('Почта не ответила'));
-                    if (j.error) return rej(new Error(j.error));
-                    res(j);
-                },
-                onerror: () => rej(new Error('Нет связи с почтой')),
-                ontimeout: () => rej(new Error('Почта долго не отвечает'))
+                data: JSON.stringify(body)
             });
-        });
-    }
-};
-
-// раз в день отметка «скрипт запущен»: id установки, версия, должность и браузер, без ника и текстов
-const Stats = {
-    ping() {
-        if (!Settings.get().stats || !Mail.url()) return;
-        const today = new Date().toISOString().slice(0, 10);
-        // раз в день и сразу после обновления, чтобы в таблице была свежая версия
-        if (Store.get('pingDay', '') === today && Store.get('pingV', '') === BRAND.version) return;
-        Store.set('pingDay', today);
-        Store.set('pingV', BRAND.version);
-        const ua = navigator.userAgent;
-        Mail.call({
-            action: 'ping',
-            uid: Mail.uid(),
-            v: BRAND.version,
-            role: Access.title() || 'не выбрана',
-            br: ((ua.match(/(Edg|OPR|YaBrowser|Firefox|Chrome|Safari)\/\d+/) || ['?'])[0] || '?').replace('/', ' ')
-        }).catch(() => Store.set('pingDay', ''));
-    }
-};
-
-const Feedback = {
-    configured() {
-        return !!Mail.url();
+            if (a.err) throw new Error(a.err);
+            let j = json(a.r.responseText);
+            if (!j) {
+                const hop = (String(a.r.responseText || '').match(/https:\/\/script\.googleusercontent\.com\/[^"'\s<>]+/) || [])[0];
+                if (hop) {
+                    const b = await req({ method: 'GET', url: hop.replace(/&amp;/g, '&') });
+                    if (!b.err) j = json(b.r.responseText);
+                }
+            }
+            if (!j) throw new Error('Почта не ответила');
+            if (j.error) throw new Error(j.error);
+            return j;
+        })();
     },
     diag() {
         const ua = navigator.userAgent;
@@ -11758,6 +11748,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.10.26',
+        ['Связь с разработчиком надёжнее: обращения и ответы доходят, даже если в браузере несколько аккаунтов Google']
+    ],
     [
         '1.10.25',
         ['Новый адрес почты разработчика: обращения, ответы и статистика идут на обновлённый сервер']
