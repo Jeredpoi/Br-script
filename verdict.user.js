@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.19
+// @version      1.10.20
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.19', // подставляет build.sh из @version
+    version: '1.10.20', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -4956,6 +4956,8 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .ms-kpi b { font-size: 28px; line-height: 1.1; color: color-mix(in srgb, var(--acc) 55%, #fff); }
 .ms-kpi small { font-size: 11px; color: var(--tx-3); min-height: 14px; }
 .ms-chart { display: flex; align-items: flex-end; gap: 3px; height: 150px; padding: 12px 12px 6px; }
+.ms-chart.ms-empty { align-items: center; justify-content: center; gap: 10px; color: var(--tx-3); font-size: 12.5px; text-align: center; }
+.ms-chart.ms-empty svg { flex: none; color: var(--acc); opacity: .7; }
 .ms-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; min-width: 0; }
 .ms-col i { width: 100%; min-height: 2px; border-radius: 4px 4px 1px 1px; background: linear-gradient(180deg, color-mix(in srgb, var(--acc) 80%, #fff), var(--acc)); opacity: .85; }
 .ms-col:hover i { opacity: 1; }
@@ -5100,6 +5102,8 @@ input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var
 
 /* шаблоны */
 .tpl-head { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.tpl-head > select { flex: 1 1 200px; min-width: 0; width: auto; }
+.tpl-head > .btn { flex: none; white-space: nowrap; }
 .tpl-row { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; }
 .tpl-row:hover { background: rgba(255,255,255,.035); }
 .tpl-row .t { flex: 1; min-width: 0; }
@@ -5172,7 +5176,11 @@ input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var
 @media (max-width: 760px) {
   .main { min-height: 0; }
   .row { flex-wrap: wrap; }
-  .seg { flex-wrap: wrap; max-width: 100%; }
+  /* переключатели и кнопки над ответами не переносятся по одной в строку */
+  .seg { display: flex; flex-wrap: nowrap; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .seg button { flex: 1 0 auto; white-space: nowrap; padding: 0 10px; }
+  .tpl-head > select { flex-basis: 100%; }
+  .tpl-head > .btn { flex: 1 1 auto; justify-content: center; }
   .row select.inp { max-width: 100%; }
   .picker { width: calc(100vw - 20px) !important; }
   .pk-prev { display: none; }
@@ -7545,17 +7553,17 @@ const Age = {
     }
 };
 
-// настройки
+// настройки; пятое поле — короткая подпись в боковом меню (в две строки не переносится)
 const SETTINGS_TABS = [
     ['role', 'badge', 'Должность', 'Какие разделы и вердикты показывать'],
     ['answers', 'pen', 'Ответы', 'Свои ответы и разделы, импорт и экспорт'],
     ['look', 'star', 'Оформление ответа', 'Как ответ выглядит в теме'],
     ['themes', 'palette', 'Темы', 'Готовые темы, цвета, фон и прозрачность'],
-    ['status', 'lock', 'Статусы и поведение', 'Префиксы, подсказки, горячие клавиши'],
+    ['status', 'lock', 'Статусы и поведение', 'Префиксы, подсказки, горячие клавиши', 'Поведение'],
     ['qnav', 'forward', 'Навигация', 'Быстрые кнопки разделов в шапке форума'],
     ['mystats', 'bolt', 'Моя статистика', 'Сколько ответов ты дал: по дням, вердиктам и разделам'],
     ['autograph', 'pen', 'Автограф', 'Подпись на стене профиля: стиль и свой текст'],
-    ['contact', 'chat', 'Связь с разработчиком', 'Идеи, ошибки и свои шаблоны'],
+    ['contact', 'chat', 'Связь с разработчиком', 'Идеи, ошибки и свои шаблоны', 'Связь'],
     ['about', 'shield', 'О скрипте', 'Приватность и защита авторства']
 ];
 // готовые темы; фото с Unsplash, авторы во вкладке «О скрипте»
@@ -7571,6 +7579,15 @@ function fitCanvas(img) {
     c.imageSmoothingQuality = 'high';
     c.drawImage(img, 0, 0, cv.width, cv.height);
     return cv;
+}
+// подпись ответа в списке: текст, а у передачи без текста — её итоговая строка («Передано …»)
+function rowSub(item, pack) {
+    const t = String(item.text || '')
+        .replace(/\n/g, ' ')
+        .trim();
+    if (t) return t;
+    const tail = item.tail !== undefined ? item.tail : Tails.get(pack && pack.kind, item.verdict);
+    return String(tail || '').trim() === '-' ? '' : String(tail || '').trim();
 }
 // одна и та же тема с разной шириной фото (экран сменился, старая сборка ставила 1920)
 const noW = url => String(url || '').replace(/&w=\d+$/, '');
@@ -7677,7 +7694,7 @@ const SettingsUI = {
               <aside class="side">
                 <div class="side-brand"><span class="brand-mark">${icon('logo', 19)}</span><div><div class="m-title" style="letter-spacing:.18em">VERDICT</div><div class="m-sub">v${BRAND.version}</div></div></div>
                 <nav class="tabs">
-                  ${SETTINGS_TABS.map(([id, ic, nm]) => `<button class="tab" data-t="${id}">${icon(ic)}<span>${nm}</span></button>`).join('')}
+                  ${SETTINGS_TABS.map(([id, ic, nm, , short]) => `<button class="tab" data-t="${id}" title="${nm}">${icon(ic)}<span>${short || nm}</span></button>`).join('')}
                 </nav>
                 <div class="side-foot">${off ? `<span class="badge-warn">${icon('shield', 12)}Неофициальная копия</span>` : `${icon('shield', 12).replace('class="vi"', 'class="vi" style="display:inline;vertical-align:-2px"')} Оригинальная сборка`}</div>
               </aside>
@@ -7787,8 +7804,10 @@ const SettingsUI = {
             return b;
         };
         mk('plus', 'Ответ', 'pri', () => this.editItem(null));
-        mk('plus', 'Раздел', '', () => this.editPack(null));
-        mk('edit', 'Раздел', 'ghost', () => this.editPack(this.packSel));
+        // две кнопки «Раздел» с разными значками путались: подписи говорят, что делают
+        mk('plus', 'Новый раздел', '', () => this.editPack(null)).title = 'Создать свой раздел ответов';
+        mk('edit', 'Изменить раздел', 'ghost', () => this.editPack(this.packSel)).title =
+            'Название и условие показа раздела';
         // последний раздел не удаляем: без разделов вкладка ответов не откроется
         if (this.packSel !== 'common' && packs.length > 1)
             mk('trash', '', 'ghost danger', () => {
@@ -7814,7 +7833,7 @@ const SettingsUI = {
             const s = this.sec(pane, `<span style="color:${VERDICTS[v].color}">●</span> ${VERDICTS[v].label}`);
             items.forEach(item => {
                 const r =
-                    U.h(`<div class="tpl-row"><span class="t"><b>${U.esc(item.title)}</b><small>${U.esc(item.text.replace(/\n/g, ' '))}</small></span>
+                    U.h(`<div class="tpl-row"><span class="t"><b>${U.esc(item.title)}</b><small>${U.esc(rowSub(item, pack))}</small></span>
                     ${Packs.isEdited(pack, item) ? '<span class="tag" style="color:var(--acc)">изменён</span><button class="icon-btn" data-a="r" title="Вернуть стандартный текст">' + icon('x', 15) + '</button>' : ''}
                     ${item.key ? `<span class="tag">/${U.esc(item.key)}</span>` : ''}
                     <button class="icon-btn" data-a="e" title="Изменить">${icon('edit', 15)}</button>
@@ -8381,7 +8400,7 @@ const SettingsUI = {
         const subs = [
             ['list', 'Готовые темы'],
             ['colors', 'Цвета'],
-            ['theme', 'Фон и прозрачность']
+            ['theme', 'Фон']
         ];
         if (!subs.some(x => x[0] === this.themeSub)) this.themeSub = 'list';
         const seg = U.h(`<div class="seg vd-subtabs"></div>`);
@@ -9180,7 +9199,7 @@ const SettingsUI = {
     tab_about(pane) {
         const ok = Integrity.ok();
         pane.appendChild(
-            U.h(`<div class="about">
+            U.h(`<div class="about" style="margin-bottom:22px">
             <div class="row"><div class="lbl"><b>VERDICT</b> v${BRAND.version}<small>Сборка ${BRAND.build}</small></div>${ok ? `<span class="tag" style="color:#2fbf71">${icon('shield', 12).replace('class="vi"', 'class="vi" style="display:inline;vertical-align:-2px"')} оригинал</span>` : `<span class="badge-warn">Неофициальная копия</span>`}</div>
             <div><b>Приватность.</b> Настройки и шаблоны хранятся только в менеджере скриптов. Раз в день скрипт анонимно отмечается у разработчика (id установки, версия, должность, браузер, без ника), чтобы он видел, сколько людей пользуется VERDICT. Это можно выключить ниже. Ещё скрипт обращается к спеллеру Яндекса (по кнопке), к Unsplash за фото тем и к почте разработчика, когда ты сам отправляешь обращение.</div>
             <div><b>Как пользоваться.</b> Наведи или нажми на вердикт над полем ввода, откроется список ответов. Клик вставляет текст, ⚡ или Shift+клик сразу отправляет ответ и меняет статус. В поле работает «/ключ» + Tab, Ctrl+K открывает поиск.</div>
@@ -10073,16 +10092,24 @@ Object.assign(SettingsUI, {
         const ser = MyStats.series(30);
         const max = Math.max(1, ...ser.map(x => x.n));
         const chart = this.sec(pane, 'Ответы по дням');
-        chart.appendChild(
-            U.h(
-                `<div class="card ms-chart">${ser
-                    .map(
-                        x =>
-                            `<div class="ms-col" title="${x.d.toLocaleDateString('ru-RU')}: ${x.n}"><i style="height:${Math.round((x.n / max) * 100)}%"></i><span>${x.d.getDate()}</span></div>`
-                    )
-                    .join('')}</div>`
-            )
-        );
+        // пока ответов нет — вместо ряда пустых чёрточек подсказка
+        if (!ser.some(x => x.n)) {
+            chart.appendChild(
+                U.h(
+                    `<div class="card ms-chart ms-empty">${icon('bolt', 18)}<span>Ответов пока нет — график появится после первого ответа через панель VERDICT</span></div>`
+                )
+            );
+        } else
+            chart.appendChild(
+                U.h(
+                    `<div class="card ms-chart">${ser
+                        .map(
+                            x =>
+                                `<div class="ms-col" title="${x.d.toLocaleDateString('ru-RU')}: ${x.n}"><i style="height:${Math.round((x.n / max) * 100)}%"></i><span>${x.d.getDate()}</span></div>`
+                        )
+                        .join('')}</div>`
+                )
+            );
         // вердикты и разделы за выбранный период
         let period = this._msPeriod ?? 7;
         const det = this.sec(pane, 'Разбивка');
@@ -11170,6 +11197,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.20', ['Настройки: короткие подписи в боковом меню — пункты не переносятся в две строки', 'Ответы: кнопки «Новый раздел» и «Изменить раздел» вместо двух одинаковых «Раздел»; у передачи в списке видна её строка', 'Моя статистика: пока ответов нет — подсказка вместо пустого графика', 'Телефон: переключатели периода и вкладки тем в одну строку, кнопки над ответами ровными рядами', 'О скрипте: отступ перед «Обновлениями»']],
     ['1.10.19', ['Передача с общей итоговой строкой «-» больше не отправляет пустой ответ', 'Импорт ответов: «Отмена» больше не стирает все разделы — замена спрашивается отдельно', 'Импорт настроек без скрытых ответов не «заражает» стандартные настройки', 'Обновление стандартного текста не стирает твою итоговую строку', 'Вставка по сокращению учитывается в «Моей статистике»', 'Последний раздел ответов нельзя удалить', 'Ошибка в одной части скрипта не выключает остальные (панель ответов, навигация, темы)', 'Не хватило места в браузере — теперь видно сообщение, а не тихая потеря', 'Окно обрезки логотипа, закрытое через Esc, не оставляет хвостов']],
     ['1.10.18', ['Темы в высоком качестве: фото и генеративные фоны под размер экрана — на 2K/4K до 2560 px вместо 1920/1600, уже выбранная тема обновится сама', 'Свои фото и живые фоны сохраняются чётче (до 2560×1440, сглаживание при уменьшении)', 'Превью тем в настройках чётче', 'В экономном режиме фоны остаются лёгкими (1920)']],
     ['1.10.17', ['Безопасность: пропуск «Будьте осторожны» работает только на настоящей странице перехода — пост с такими словами больше не может увести на чужой сайт', 'Передача — без баннера и подписи, даже со своей пустой итоговой строкой', 'Просмотр фото на телефоне: масштаб двумя пальцами, рисует только один палец', 'Приближенное фото не сбрасывается при повороте экрана и открытии клавиатуры', 'Колесо над панелями просмотра не листает форум, уведомления видны поверх фото, двойной клик по фону не закрывает окно']],
