@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.26
+// @version      1.10.27
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.26', // подставляет build.sh из @version
+    version: '1.10.27', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9901,11 +9901,11 @@ const Mail = {
     },
     // без cookies Google: при нескольких аккаунтах Google вместо ответа почты отдаёт свою страницу.
     // Переадресацию на script.googleusercontent.com проходим сами, если менеджер скриптов её не прошёл
-    call(body) {
+    call(body, withCookies) {
         const req = o =>
             new Promise(res =>
                 GM_xmlhttpRequest(
-                    Object.assign({ anonymous: true, timeout: 30000 }, o, {
+                    Object.assign({ anonymous: !withCookies, timeout: 30000 }, o, {
                         onload: r => res({ r }),
                         onerror: () => res({ err: 'Нет связи с почтой' }),
                         ontimeout: () => res({ err: 'Почта долго не отвечает' })
@@ -9937,6 +9937,8 @@ const Mail = {
                     if (!b.err) j = json(b.r.responseText);
                 }
             }
+            // доступ к почте может быть «все с аккаунтом Google» — тогда без cookies не пустит
+            if (!j && !withCookies) return this.call(body, true);
             if (!j) throw new Error('Почта не ответила');
             if (j.error) throw new Error(j.error);
             return j;
@@ -11749,7 +11751,7 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
-        '1.10.26',
+        '1.10.27',
         ['Связь с разработчиком надёжнее: обращения и ответы доходят, даже если в браузере несколько аккаунтов Google']
     ],
     [
