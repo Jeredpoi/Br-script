@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.17
+// @version      1.10.18
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.17', // подставляет build.sh из @version
+    version: '1.10.18', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -3361,9 +3361,18 @@ const GENERATORS = {
     }
 };
 
+// ширина фона под экран: на 2K/4K и масштабе 125% фото 1920 и генерация 1600 заметно мылят.
+// больше 2560 не берём: data-URL текущего фона должен влезать в localStorage форума
+function wallW() {
+    if (Perf.light()) return 1920;
+    const d = window.devicePixelRatio || 1;
+    const px = Math.round(Math.max(screen.width || 0, screen.height || 0) * d);
+    return px > 2000 ? 2560 : 1920;
+}
+
 const Wallpaper = {
     _cache: new Map(),
-    render(gen, seed, w = 1600, h = 900) {
+    render(gen, seed, w = wallW(), h = Math.round((w * 9) / 16)) {
         // версия в ключе: после обновления генераторов старая картинка из кэша не показывается
         const key = `${BRAND.version}:${gen}:${seed}:${w}x${h}`;
         if (this._cache.has(key)) {
@@ -3407,7 +3416,7 @@ const Wallpaper = {
         oc.fillStyle = 'rgba(255,255,255,0.16)';
         oc.textAlign = 'right';
         oc.fillText(`${BRAND.name} · ${gen}#${seed}`, w - 14, h - 12);
-        const url = out.toDataURL('image/jpeg', 0.9);
+        const url = out.toDataURL('image/jpeg', w >= 1200 ? 0.92 : 0.88);
         this._cache.set(key, url);
         // запоминаем только фон страницы (большой размер), превью в настройках не храним
         if (w >= 1200)
@@ -3463,13 +3472,20 @@ const Photo = {
             if (value === undefined) return JSON.parse(localStorage.getItem('vd.' + key) || 'null');
             if (value === null) localStorage.removeItem('vd.' + key);
             else localStorage.setItem('vd.' + key, JSON.stringify(value));
+            return true;
         } catch {
             // переполнено или запрещено, просто не кешируем
+            return false;
         }
         return null;
     },
     // текущий фон-фото: без аргумента прочитать, null удалить
     wall(v) {
+        if (!v) return this.local('wall', v);
+        // фон в высоком разрешении весит больше: не влез, освобождаем место превью и пробуем ещё раз
+        if (this.local('wall', v)) return true;
+        this.local('wall', null);
+        this.local('thumbs', null);
         return this.local('wall', v);
     },
     remember(url, data) {
@@ -3487,7 +3503,7 @@ const Photo = {
             return Promise.resolve(thumbs[url].d);
         }
         const job = this.fetch(url)
-            .then(data => (thumb ? this.shrink(data, 320) : data))
+            .then(data => (thumb ? this.shrink(data, 480) : data))
             .then(data => {
                 this.remember(url, data);
                 if (thumb) {
@@ -3514,7 +3530,7 @@ const Photo = {
                 c.height = Math.round(img.height * k);
                 c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
                 try {
-                    res(c.toDataURL('image/jpeg', 0.72));
+                    res(c.toDataURL('image/jpeg', 0.8));
                 } catch {
                     res(data);
                 }
@@ -7517,6 +7533,20 @@ const SETTINGS_TABS = [
 ];
 // готовые темы; фото с Unsplash, авторы во вкладке «О скрипте»
 const UNSPLASH = (id, w = 1920) => `https://unsplash.com/photos/${id}/download?force=true&w=${w}`;
+// своё фото под размер экрана (до 2560×1440), со сглаживанием при уменьшении
+function fitCanvas(img) {
+    const W = wallW(),
+        k = Math.min(1, W / img.width, Math.round((W * 9) / 16) / img.height);
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(img.width * k);
+    cv.height = Math.round(img.height * k);
+    const c = cv.getContext('2d');
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(img, 0, 0, cv.width, cv.height);
+    return cv;
+}
+// одна и та же тема с разной шириной фото (экран сменился, старая сборка ставила 1920)
+const noW = url => String(url || '').replace(/&w=\d+$/, '');
 // запасной фон, если фото не загрузилось
 const CAT_FALLBACK = {
     storm: ['thunder', 77],
@@ -8283,7 +8313,7 @@ const SettingsUI = {
     },
 
     /* Готовые темы */
-    themeSrc(p, w) {
+    themeSrc(p, w = wallW()) {
         return p.photo ? UNSPLASH(p.photo, w) : p.url || null;
     },
     applyPreset(p) {
@@ -8292,7 +8322,7 @@ const SettingsUI = {
             x.theme.enabled = true;
             x.theme.rotate = 'off';
             x.colors.accent2 = p.accent2 || '';
-            const src = this.themeSrc(p, 1920);
+            const src = this.themeSrc(p);
             const [fg, fs] = CAT_FALLBACK[p.cat] || CAT_FALLBACK.dev;
             x.theme.wall = src
                 ? { kind: 'url', url: src, fb: { gen: fg, seed: fs } }
@@ -8371,12 +8401,12 @@ const SettingsUI = {
             const grid = U.h(`<div class="walls big"></div>`);
             sec.appendChild(grid);
             list.forEach(p => {
-                const src = this.themeSrc(p, 1920);
+                const src = this.themeSrc(p);
                 const on =
                     s.theme.enabled &&
                     s.accent === p.accent &&
                     (src
-                        ? w.kind === 'url' && w.url === src
+                        ? w.kind === 'url' && noW(w.url) === noW(src)
                         : w.kind === 'gen' && w.gen === p.gen && w.seed === p.seed);
                 const fxName = p.fx && p.fx !== 'none' ? FX_EFFECTS[p.fx].name : '';
                 const card =
@@ -8389,7 +8419,7 @@ const SettingsUI = {
                     const [fg, fs] = CAT_FALLBACK[p.cat] || CAT_FALLBACK.dev;
                     card.style.backgroundImage = `${bolt}url(${Wallpaper.render(fg, fs, 400, 225)})`;
                     card.classList.add('loading');
-                    Photo.load(this.themeSrc(p, 480), { thumb: true })
+                    Photo.load(this.themeSrc(p, 640), { thumb: true })
                         .then(data => {
                             card.style.backgroundImage = `${bolt}url("${data}")`;
                         })
@@ -8797,7 +8827,7 @@ const SettingsUI = {
                 const scene = Scene.clean(d);
                 if (!scene.w || !scene.h) throw new Error('В файле нет размеров картинки');
                 const id = 'p' + U.uid();
-                // как и обычные фото: не больше 1920×1080 в JPEG, координаты сцены от размера не зависят
+                // как и обычные фото: под размер экрана (до 2560×1440) в JPEG, координаты сцены от размера не зависят
                 this.shrinkImage(d.image).then(src => {
                     Store.set('photos', Store.get('photos', []).concat({ id, name: scene.name, src, scene }));
                     Settings.patch(x => {
@@ -8819,12 +8849,8 @@ const SettingsUI = {
         return new Promise(res => {
             const img = new Image();
             img.onload = () => {
-                const k = Math.min(1, 1920 / img.width, 1080 / img.height);
-                const cv = document.createElement('canvas');
-                cv.width = Math.round(img.width * k);
-                cv.height = Math.round(img.height * k);
-                cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-                res(cv.toDataURL('image/jpeg', 0.86));
+                const cv = fitCanvas(img);
+                res(cv.toDataURL('image/jpeg', 0.9));
             };
             img.onerror = () => res(src);
             img.src = src;
@@ -8839,13 +8865,9 @@ const SettingsUI = {
             if (!f) return;
             const img = new Image();
             img.onload = () => {
-                const k = Math.min(1, 1920 / img.width, 1080 / img.height);
-                const cv = document.createElement('canvas');
-                cv.width = Math.round(img.width * k);
-                cv.height = Math.round(img.height * k);
-                cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+                const cv = fitCanvas(img);
                 URL.revokeObjectURL(img.src);
-                this.addPhoto(cv.toDataURL('image/jpeg', 0.86), f.name.replace(/\.[^.]+$/, '').slice(0, 24));
+                this.addPhoto(cv.toDataURL('image/jpeg', 0.9), f.name.replace(/\.[^.]+$/, '').slice(0, 24));
             };
             img.onerror = () => toast('Не удалось открыть картинку', 'err');
             img.src = URL.createObjectURL(f);
@@ -11109,6 +11131,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.18', ['Темы в высоком качестве: фото и генеративные фоны под размер экрана — на 2K/4K до 2560 px вместо 1920/1600, уже выбранная тема обновится сама', 'Свои фото и живые фоны сохраняются чётче (до 2560×1440, сглаживание при уменьшении)', 'Превью тем в настройках чётче', 'В экономном режиме фоны остаются лёгкими (1920)']],
     ['1.10.17', ['Безопасность: пропуск «Будьте осторожны» работает только на настоящей странице перехода — пост с такими словами больше не может увести на чужой сайт', 'Передача — без баннера и подписи, даже со своей пустой итоговой строкой', 'Просмотр фото на телефоне: масштаб двумя пальцами, рисует только один палец', 'Приближенное фото не сбрасывается при повороте экрана и открытии клавиатуры', 'Колесо над панелями просмотра не листает форум, уведомления видны поверх фото, двойной клик по фону не закрывает окно']],
     ['1.10.16', ['Просмотр фото: пока следующее фото грузится, пометки не ложатся на предыдущее']],
     ['1.10.15', ['Передача — только строка «Передано Главному администратору.» без приветствия и «Ожидайте ответа»; тема помечается префиксом', 'Дубли ответов передачи после 1.10.14 убраны', 'Настройки: «Темы», «Цвета» и «Фон» — одна страница с вкладками', 'Подвал форума: значки блоков больше не перекрываются полосой']],
@@ -11528,6 +11551,12 @@ function boot() {
         THEME_PRESETS.filter(p => p.photo).forEach(p => Store.set('ph:' + UNSPLASH(p.photo, 480), null));
         Store.set('wallData', null);
         Store.set('phV2', true);
+    }
+    // фото готовой темы под текущий экран: раньше всегда грузилось 1920 и на 2K/4K мылило
+    {
+        const wl = Settings.get().theme.wall,
+            m = wl && wl.kind === 'url' && /^https:\/\/unsplash\.com\/photos\/[^/]+\/download\?force=true&w=(\d+)$/.exec(wl.url || '');
+        if (m && +m[1] !== wallW()) Settings.patch(x => (x.theme.wall.url = noW(x.theme.wall.url) + '&w=' + wallW()));
     }
     // шрифт ответа по умолчанию теперь Verdana
     if (!Store.get('fontV2', false)) {
