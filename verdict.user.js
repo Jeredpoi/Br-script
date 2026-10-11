@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.24
+// @version      1.10.25
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,13 +55,13 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.24', // подставляет build.sh из @version
+    version: '1.10.25', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
     // mail: адрес почты разработчика (Google Apps Script из server/), telegram и vk для ссылок во вкладке «Связь»
     dev: {
-        mail: 'https://script.google.com/macros/s/AKfycbx-yEBIw_o_NKjnie7loXBJbcawRA0nU-eCHAKe9DHcxWyRrMhhvJo_DShtxZFJPiHT2Q/exec',
+        mail: 'https://script.google.com/macros/s/AKfycbytX0c4kEDYpUj_6-gMYPcuMeTQr79idfeeR0RTe3jd0StcKkJ-DGAaPppysbUx7aLmUA/exec',
         telegram: '',
         vk: ''
     },
@@ -11758,6 +11758,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.10.25',
+        ['Новый адрес почты разработчика: обращения, ответы и статистика идут на обновлённый сервер']
+    ],
     [
         '1.10.24',
         [
