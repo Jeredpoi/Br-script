@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.20
+// @version      1.10.21
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.20', // подставляет build.sh из @version
+    version: '1.10.21', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -252,6 +252,8 @@ const DEFAULT_SETTINGS = {
     openOn: 'hover', // hover — списки открываются при наведении, click — только по нажатию
     barStyle: 'docked', // docked — панель встроена в редактор, card — отдельной карточкой
     hints: true,
+    // проверять, открываются ли ссылки-доказательства в жалобах
+    proofs: true,
     shortcodes: true,
     hotkeys: true,
     launcher: true
@@ -1208,7 +1210,7 @@ const DEFAULT_PACKS = [
                 'deny',
                 'Ссылки не открываются',
                 'Ссылки на доказательства не открываются.',
-                { key: 'ссыл' }
+                { key: 'ссыл', hint: 'deadlink' }
             ),
             it(
                 'deny',
@@ -1323,7 +1325,7 @@ const DEFAULT_PACKS = [
                 'deny',
                 'Ссылки не открываются',
                 'Ссылки на доказательства не открываются.',
-                { key: 'ссыл' }
+                { key: 'ссыл', hint: 'deadlink' }
             ),
             it(
                 'deny',
@@ -1517,7 +1519,7 @@ const DEFAULT_PACKS = [
                 'deny',
                 'Ссылки не открываются',
                 'Ссылки на скриншоты не открываются.',
-                { key: 'ссыл', hint: 'noproof' }
+                { key: 'ссыл', hint: 'deadlink' }
             ),
             it('deny', 'Нет /time на скриншотах', 'На скриншотах нет /time.', {
                 key: 'тайм'
@@ -2213,7 +2215,7 @@ const Analyzer = {
         const hints = Object.entries(tags)
             .filter(([, v]) => v.strong)
             .map(([t, v]) => ({ tag: t, why: v.why }));
-        return { hints, facts, target, tags, text: U.norm(text) };
+        return { hints, facts, target, tags, text: U.norm(text), raw: text };
     },
 
     // сколько дней назад была самая поздняя дата вида 01.10 / 01.10.2026 в тексте
@@ -2699,6 +2701,321 @@ const ForumLook = {
             bg: solid(m && m.backgroundColor)
         };
         return this._v;
+    }
+};
+
+// проверка доказательств: открываются ли ссылки из жалобы (фото, видео, файлы) и сколько длится видео YouTube.
+// Запросы идут прямо с компьютера модератора на сайты из ссылок, никуда больше
+const ProofCheck = {
+    MAX: 12,
+    _cache: new Map(),
+
+    // ссылки первого сообщения: из текста, карточек и встроенных видео (подпись и цитаты не считаем)
+    links(body) {
+        const out = [];
+        const add = h => {
+            if (!h || !/^https?:\/\//i.test(h)) return;
+            try {
+                const u = new URL(h);
+                if (/(^|\.)blackrussia\.online$/i.test(u.hostname)) return;
+            } catch {
+                return;
+            }
+            if (!out.includes(h)) out.push(h);
+        };
+        body.querySelectorAll('a[href]').forEach(a => {
+            if (a.closest('.bbCodeBlock--quote, .message-signature')) return;
+            add(typeof Lightbox !== 'undefined' ? Lightbox.url(a) : a.href);
+        });
+        body.querySelectorAll('iframe[src]').forEach(f => add(f.getAttribute('src')));
+        // XF может показать YouTube как заглушку без iframe: id лежит в data-атрибуте
+        body.querySelectorAll('[data-media-site-id="youtube"][data-media-key]').forEach(e =>
+            add('https://www.youtube.com/watch?v=' + e.getAttribute('data-media-key'))
+        );
+        return out.slice(0, this.MAX);
+    },
+
+    ytId(url) {
+        const m = String(url).match(
+            /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/|v\/))([\w-]{11})/i
+        );
+        return m ? m[1] : '';
+    },
+
+    kind(url) {
+        if (this.ytId(url)) return 'video';
+        if (/(rutube\.ru|vk\.com\/(video|clip)|vkvideo\.ru|vk\.ru\/(video|clip)|twitch\.tv|tiktok\.com)/i.test(url))
+            return 'video';
+        if (/(disk\.yandex|yadi\.sk|drive\.google|cloud\.mail\.ru|mega\.nz|dropbox\.com)/i.test(url)) return 'file';
+        if (typeof Lightbox !== 'undefined' && Lightbox.resolve(url, false)) return 'photo';
+        return 'link';
+    },
+
+    // GET с таймаутом; ответ: { status, text, final, headers } или null, если сайт не ответил
+    get(url, method = 'GET') {
+        return new Promise(resolve => {
+            if (typeof GM_xmlhttpRequest !== 'function') return resolve(null);
+            let done = false;
+            const fin = v => {
+                if (!done) ((done = true), resolve(v));
+            };
+            setTimeout(() => fin(null), 15000);
+            try {
+                GM_xmlhttpRequest({
+                    method,
+                    url,
+                    timeout: 14000,
+                    headers: { 'Accept-Language': 'ru-RU,ru;q=0.9' },
+                    onload: r =>
+                        fin({
+                            status: r.status,
+                            text: method === 'HEAD' ? '' : String(r.responseText || '').slice(0, 1500000),
+                            final: r.finalUrl || url,
+                            headers: r.responseHeaders || ''
+                        }),
+                    onerror: () => fin(null),
+                    ontimeout: () => fin(null)
+                });
+            } catch {
+                fin(null);
+            }
+        });
+    },
+
+    // заголовок страницы, без названия сайта
+    title(html) {
+        const m =
+            html.match(/<meta[^>]+(?:property|name)=["'](?:og:title|title)["'][^>]+content=["']([^"']{1,200})/i) ||
+            html.match(/<title[^>]*>([^<]{1,200})<\/title>/i);
+        if (!m) return '';
+        const t = document.createElement('textarea');
+        t.innerHTML = m[1];
+        return t.value
+            .replace(/\s+[-|–—]\s+(YouTube|RUTUBE|ВКонтакте|VK Видео|Яндекс[ .]Диск.*|Google Диск.*)$/i, '')
+            .trim();
+    },
+
+    check(url) {
+        if (!this._cache.has(url))
+            this._cache.set(
+                url,
+                this.checkNow(url).catch(() => ({ state: 'unknown', why: 'не проверилось' }))
+            );
+        return this._cache.get(url).then(r => Object.assign({ url, kind: this.kind(url) }, r));
+    },
+
+    async checkNow(url) {
+        const yt = this.ytId(url);
+        if (yt) return this.youtube(yt);
+        const kind = this.kind(url);
+        if (kind === 'photo') return this.photo(url);
+        const r = await this.get(url);
+        if (!r) return { state: 'unknown', why: 'сайт не ответил' };
+        if (r.status === 404 || r.status === 410)
+            return { state: 'dead', why: 'страница не найдена (' + r.status + ')' };
+        if (r.status === 401 || r.status === 403) return { state: 'private', why: 'нет доступа (' + r.status + ')' };
+        if (r.status >= 400) return { state: 'dead', why: 'сайт вернул ошибку ' + r.status };
+        // вход по ссылке перекинул на страницу логина — файл закрыт
+        if (/accounts\.google\.com|passport\.yandex|login\.vk\.com|vk\.com\/login|\/login\?/i.test(r.final))
+            return { state: 'private', why: 'файл закрыт — просит войти' };
+        const title = this.title(r.text);
+        const head = (title + ' ' + r.text.slice(0, 60000)).toLowerCase();
+        if (
+            /(файл|ссылка|видео(запись)?|страница|публикация)[^<]{0,40}(удал[её]н|не найден|был[аи]? удален|недоступн|заблокирован)|видео недоступно|video unavailable|file (not found|deleted)|this file does not exist|ресурс не найден/.test(
+                head
+            )
+        )
+            return { state: 'dead', why: 'на странице: удалено или недоступно', title };
+        if (
+            /доступ (к (файлу|видео|ссылке)\s*)?ограничен|видео доступно только|приватн|access denied|need permission|запросить доступ|request access/.test(
+                head
+            )
+        )
+            return { state: 'private', why: 'доступ ограничен', title };
+        return { state: 'ok', why: '', title };
+    },
+
+    async youtube(id) {
+        const r = await this.get(`https://www.youtube.com/watch?v=${id}&hl=ru`);
+        if (r && r.status === 200 && r.text) {
+            const st = (r.text.match(/"playabilityStatus":\{"status":"(\w+)"/) || [])[1] || '';
+            const reason = (
+                (r.text.match(/"playabilityStatus":\{[^{}]*?"reason":"([^"]{1,160})"/) || [])[1] || ''
+            ).replace(/\\u0026/g, '&');
+            const sec = +((r.text.match(/"lengthSeconds":"(\d+)"/) || [])[1] || 0);
+            const title = this.title(r.text);
+            if (st === 'OK') return { state: 'ok', why: '', title, dur: sec || 0 };
+            if (st === 'LOGIN_REQUIRED')
+                return { state: 'private', why: reason || 'нужен вход (18+ или ограниченный доступ)', title, dur: sec };
+            if (st === 'ERROR' || st === 'UNPLAYABLE')
+                return { state: 'dead', why: reason || 'видео недоступно', title };
+            if (st === 'LIVE_STREAM_OFFLINE') return { state: 'ok', why: 'трансляция', title };
+        }
+        // страница не разобралась (согласие на cookies и т.п.) — спросим oEmbed: он знает, есть ли видео
+        const o = await this.get(
+            `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + id)}`
+        );
+        if (!o) return { state: 'unknown', why: 'YouTube не ответил' };
+        if (o.status === 200) {
+            let title = '';
+            try {
+                title = JSON.parse(o.text).title || '';
+            } catch {
+                /* пусто */
+            }
+            return { state: 'ok', why: '', title };
+        }
+        if (o.status === 401 || o.status === 403)
+            return { state: 'private', why: 'видео закрыто (доступ по ссылке выключен)' };
+        if (o.status === 404 || o.status === 400) return { state: 'dead', why: 'видео удалено или его нет' };
+        return { state: 'unknown', why: 'YouTube ответил ' + o.status };
+    },
+
+    async photo(url) {
+        let img = Lightbox.resolve(url);
+        if (img && typeof img.then === 'function') img = await img;
+        if (!img) {
+            // страница хостинга не отдала картинку — сама страница открывается?
+            const r = await this.get(url);
+            if (!r) return { state: 'unknown', why: 'сайт не ответил' };
+            if (r.status === 404 || r.status === 410)
+                return { state: 'dead', why: 'скриншот удалён (' + r.status + ')' };
+            if (r.status >= 400) return { state: 'dead', why: 'сайт вернул ошибку ' + r.status };
+            return { state: 'unknown', why: 'картинку на странице не нашёл — открой вручную' };
+        }
+        // заглушки «картинка удалена» у хостингов
+        if (
+            /i\.imgur\.com\/removed\.png|st\.prntscr\.com\/[^"']*\/img\/0_173a7b_211be8ff|\/removed\.(png|jpg)|no_image|image-not-found/i.test(
+                img
+            )
+        )
+            return { state: 'dead', why: 'скриншот удалён с хостинга' };
+        const r = await this.get(img, 'HEAD');
+        if (!r) return { state: 'unknown', why: 'хостинг не ответил' };
+        if (/removed\.png|\/removed|not[-_]?found/i.test(r.final))
+            return { state: 'dead', why: 'скриншот удалён с хостинга' };
+        if (r.status === 404 || r.status === 410) return { state: 'dead', why: 'скриншот удалён (' + r.status + ')' };
+        // HEAD запрещён у части хостингов — это не значит, что картинки нет
+        if (r.status === 405 || r.status === 403) return { state: 'ok', why: '' };
+        if (r.status >= 400) return { state: 'dead', why: 'хостинг вернул ошибку ' + r.status };
+        return { state: 'ok', why: '' };
+    },
+
+    // все ссылки темы; onProgress(results) вызывается по мере ответов
+    run(body, onProgress) {
+        const urls = this.links(body);
+        const res = urls.map(url => ({ url, kind: this.kind(url), state: 'wait', why: '' }));
+        if (!urls.length) return Promise.resolve(res);
+        return Promise.all(
+            urls.map((url, i) =>
+                this.check(url).then(r => {
+                    res[i] = r;
+                    if (onProgress) onProgress(res.slice());
+                })
+            )
+        ).then(() => res);
+    },
+
+    // что из этого следует для подсказок ответов
+    tags(res, text) {
+        const proofs = res.filter(r => r.kind !== 'link');
+        const dead = proofs.filter(r => r.state === 'dead' || r.state === 'private');
+        const tags = {};
+        if (dead.length)
+            tags.deadlink = {
+                why: `Не открывается: ${dead
+                    .slice(0, 2)
+                    .map(r => this.short(r.url) + (r.why ? ` (${r.why})` : ''))
+                    .join('; ')}`,
+                strong: dead.length === proofs.length || dead.length >= 2
+            };
+        const vids = res.filter(r => r.dur);
+        const long = vids.filter(r => r.dur > 180);
+        const timecodes = /\b\d{1,2}:\d{2}\b/.test(text || '');
+        if (long.length && !timecodes)
+            tags.timecode = {
+                why: `Видео ${this.dur(long[0].dur)} без тайм-кодов (нужны, если видео длиннее 3 минут)`,
+                strong: true
+            };
+        // все видео известной длины и короче 3 минут — тайм-коды не нужны
+        const allShort = vids.length && !long.length && vids.length === res.filter(r => r.kind === 'video').length;
+        return { tags, allShort };
+    },
+
+    short(url) {
+        return String(url)
+            .replace(/^https?:\/\/(www\.)?/, '')
+            .slice(0, 38);
+    },
+    dur(sec) {
+        sec = Math.round(sec || 0);
+        const h = Math.floor(sec / 3600),
+            m = Math.floor((sec % 3600) / 60),
+            s = sec % 60;
+        return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+    }
+};
+
+// окно со списком проверенных ссылок
+const ProofPanel = {
+    open(bar) {
+        const res = bar.proofs || [];
+        const mark = {
+            ok: ['check', '#2fbf71', 'открывается'],
+            dead: ['x', '#e5484d', 'не открывается'],
+            private: ['lock', '#f5a524', 'закрыто'],
+            unknown: ['eye', '#8b8f9a', 'проверь вручную'],
+            wait: ['clock', '#8b8f9a', 'проверяю…']
+        };
+        const kinds = { photo: 'Фото', video: 'Видео', file: 'Файл', link: 'Ссылка' };
+        const rows = res.length
+            ? res
+                  .map(r => {
+                      const [ic, c, lbl] = mark[r.state] || mark.unknown;
+                      const extra = [r.dur ? 'длина ' + ProofCheck.dur(r.dur) : '', r.why].filter(Boolean).join(' · ');
+                      return `<div class="row"><span class="vic sm" style="--c:${c}">${icon(ic, 11)}</span>
+                    <div class="lbl"><b>${kinds[r.kind] || 'Ссылка'}</b> · <a href="${U.esc(r.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--tx-2)">${U.esc(ProofCheck.short(r.url))}</a>
+                    <small>${U.esc(lbl)}${r.title ? ' · «' + U.esc(r.title.slice(0, 80)) + '»' : ''}${extra ? ' · ' + U.esc(extra) : ''}</small></div></div>`;
+                  })
+                  .join('')
+            : `<div class="row"><div class="lbl">В первом сообщении нет ссылок</div></div>`;
+        const ok = res.filter(r => r.state === 'ok').length,
+            bad = res.filter(r => r.state === 'dead' || r.state === 'private').length;
+        const scrim = Layer.add(
+            U.h(`<div class="scrim"><div class="modal sm">
+            <div class="m-head"><span class="vic" style="--c:var(--acc);width:34px;height:34px;border-radius:10px">${icon('shield', 16)}</span>
+              <div><div class="m-title">Проверка доказательств</div>
+                <div class="m-sub">ссылок ${res.length} · открываются ${ok}${bad ? ' · не открываются ' + bad : ''}</div></div>
+              <span style="flex:1"></span><button class="icon-btn" data-a="x">${icon('x')}</button></div>
+            <div class="pane">
+              <div class="card">${rows}</div>
+              <div class="muted" style="font-size:12px;margin-top:10px">Скрипт сам открывает ссылки и смотрит ответ сайта. «Проверь вручную» — сайт не дал понять, есть ли файл.</div>
+              <div class="btns" style="margin-top:14px">
+                <button class="btn" data-a="again">${icon('spark', 14)}Проверить заново</button>
+                <span style="flex:1"></span>
+                ${bad ? `<button class="btn pri" data-a="dead">${icon('x', 14)}Ответ «ссылки не открываются»</button>` : ''}
+              </div>
+            </div></div></div>`)
+        );
+        const close = () => scrim.remove();
+        scrim.querySelector('[data-a="x"]').onclick = close;
+        scrim.addEventListener('mousedown', e => e.target === scrim && close());
+        scrim.querySelector('[data-a="again"]').onclick = () => {
+            close();
+            (bar.proofs || []).forEach(r => ProofCheck._cache.delete(r.url));
+            bar.checkProofs(true);
+        };
+        const dead = scrim.querySelector('[data-a="dead"]');
+        if (dead)
+            dead.onclick = () => {
+                const e = bar.entries().find(x => {
+                    const d = Packs.defaultOf(x.pack, x.item);
+                    return (x.item.hint || (d && d.hint)) === 'deadlink';
+                });
+                close();
+                if (e) bar.pick(e.item, false);
+                else toast('В твоих разделах нет ответа «Ссылки не открываются»', 'err');
+            };
     }
 };
 
@@ -5896,6 +6213,7 @@ class ReplyBar {
         Bus.on('settings', () => {
             // должность могла поменять видимые разделы, а от них зависит разбор темы
             this.analysis = Analyzer.run(this.packs());
+            this.applyProofs();
             if (!Settings.get().status.apply) this.pending = null;
             this.render();
         });
@@ -5952,9 +6270,42 @@ class ReplyBar {
         // после отрисовки: чтение стилей до неё заставляло браузер пересчитать всю страницу раньше времени
         requestAnimationFrame(() => this.matchEditor());
         this.analysis = Analyzer.run(this.packs());
+        this.checkProofs();
         const isBio = this.packs().some(p => p.kind === 'bio') || /биограф/i.test(Page.crumbs() + ' ' + Page.title());
         this.bio = isBio ? BioCheck.run() : null;
         this.render();
+    }
+    // доказательства из темы: открываются ли ссылки (в фоне, по мере ответов сайтов)
+    checkProofs() {
+        const s = Settings.get(),
+            body = Page.firstPost();
+        const kinds = new Set(this.packs().map(p => p.kind));
+        const tok = (this._proofTok = (this._proofTok || 0) + 1);
+        if (!s.hints || s.proofs === false || !body || !['complaint', 'appeal', 'app'].some(k => kinds.has(k))) {
+            this.proofs = null;
+            return;
+        }
+        ProofCheck.run(body, res => {
+            if (tok !== this._proofTok) return;
+            this.proofs = res;
+            if (this.root) this.renderHints();
+        }).then(res => {
+            if (tok !== this._proofTok) return;
+            this.proofs = res;
+            this.applyProofs();
+            if (this.root) this.render();
+        });
+    }
+    // результат проверки — в подсказки ответов («Ссылки не открываются», тайм-коды по длине видео)
+    applyProofs() {
+        if (!this.analysis || !this.analysis.tags || !this.proofs || this.proofs.some(r => r.state === 'wait')) return;
+        const { tags, allShort } = ProofCheck.tags(this.proofs, this.analysis.raw);
+        if (allShort) delete this.analysis.tags.timecode;
+        Object.assign(this.analysis.tags, tags);
+        this.analysis.hints = Object.entries(this.analysis.tags)
+            .filter(([, v]) => v.strong)
+            .map(([t, v]) => ({ tag: t, why: v.why }));
+        this._fit = null;
     }
     ctx() {
         // итоговая строка по разделу темы, даже для ответов из «Общих» и своих паков
@@ -6146,6 +6497,16 @@ class ReplyBar {
                 `<button class="hint" data-a="bio" style="--c:${c}" title="Проверка по правилам раздела">${icon('shield', 13)}Проверка биографии: ✓${okCount}${b.warns ? ' · ⚠' + b.warns : ''}${b.fails ? ' · ✗' + b.fails : ''}</button>`
             );
         }
+        if (this.proofs && this.proofs.length) {
+            const p = this.proofs;
+            const wait = p.filter(r => r.state === 'wait').length,
+                bad = p.filter(r => r.state === 'dead' || r.state === 'private').length,
+                ok = p.filter(r => r.state === 'ok').length;
+            const c = bad ? VERDICTS.deny.color : wait ? 'var(--tx-3)' : VERDICTS.approve.color;
+            parts.push(
+                `<button class="hint" data-a="proofs" style="--c:${c}" title="Открываются ли ссылки из темы — нажми, чтобы увидеть каждую">${icon('shield', 13)}Доказательства: ${wait ? 'проверяю… ' : ''}✓${ok}${bad ? ' · ✗' + bad : ''}</button>`
+            );
+        }
         const s = Settings.get();
         if (s.hints && this.analysis) {
             const fits = this.fits();
@@ -6192,6 +6553,8 @@ class ReplyBar {
                 );
         const bio = row.querySelector('[data-a="bio"]');
         if (bio) bio.onclick = () => BioPanel.open(this);
+        const pr = row.querySelector('[data-a="proofs"]');
+        if (pr) pr.onclick = () => ProofPanel.open(this);
         row.querySelector('[data-a="role"]').onclick = e => {
             e.stopPropagation();
             RolePicker.open();
@@ -6234,6 +6597,7 @@ class ReplyBar {
                 this.packOverride = item.id || null;
                 Store.set('packOverride:' + (Page.crumbs() || 'x'), this.packOverride);
                 this.analysis = Analyzer.run(this.packs());
+                this.checkProofs();
                 this.render();
             }
         });
@@ -9037,6 +9401,17 @@ const SettingsUI = {
         );
         g.appendChild(
             this.row(
+                'Проверка доказательств',
+                'В жалобах и обжалованиях скрипт сам открывает ссылки: удалён ли скриншот, закрыто ли видео, его длина (нужны ли тайм-коды)',
+                this.sw(s.proofs !== false, v =>
+                    Settings.patch(x => {
+                        x.proofs = v;
+                    })
+                )
+            )
+        );
+        g.appendChild(
+            this.row(
                 'Шорткоды «/ключ» в поле ввода',
                 'Напиши /нд и нажми Tab',
                 this.sw(s.shortcodes, v =>
@@ -9201,7 +9576,7 @@ const SettingsUI = {
         pane.appendChild(
             U.h(`<div class="about" style="margin-bottom:22px">
             <div class="row"><div class="lbl"><b>VERDICT</b> v${BRAND.version}<small>Сборка ${BRAND.build}</small></div>${ok ? `<span class="tag" style="color:#2fbf71">${icon('shield', 12).replace('class="vi"', 'class="vi" style="display:inline;vertical-align:-2px"')} оригинал</span>` : `<span class="badge-warn">Неофициальная копия</span>`}</div>
-            <div><b>Приватность.</b> Настройки и шаблоны хранятся только в менеджере скриптов. Раз в день скрипт анонимно отмечается у разработчика (id установки, версия, должность, браузер, без ника), чтобы он видел, сколько людей пользуется VERDICT. Это можно выключить ниже. Ещё скрипт обращается к спеллеру Яндекса (по кнопке), к Unsplash за фото тем и к почте разработчика, когда ты сам отправляешь обращение.</div>
+            <div><b>Приватность.</b> Настройки и шаблоны хранятся только в менеджере скриптов. Раз в день скрипт анонимно отмечается у разработчика (id установки, версия, должность, браузер, без ника), чтобы он видел, сколько людей пользуется VERDICT. Это можно выключить ниже. Ещё скрипт обращается к спеллеру Яндекса (по кнопке), к Unsplash за фото тем, к сайтам из ссылок в жалобе (проверка доказательств, её можно выключить в «Поведении») и к почте разработчика, когда ты сам отправляешь обращение.</div>
             <div><b>Как пользоваться.</b> Наведи или нажми на вердикт над полем ввода, откроется список ответов. Клик вставляет текст, ⚡ или Shift+клик сразу отправляет ответ и меняет статус. В поле работает «/ключ» + Tab, Ctrl+K открывает поиск.</div>
             <div><b>Подсказки.</b> Скрипт читает первое сообщение темы и поднимает наверх подходящие ответы: нет ссылок, не по форме, только скриншоты, старая дата, слова вроде «убил» или «оскорбил». Звёздочка значит «почти точно». Решаешь всё равно ты.</div>
             <div><b>Фото в темах.</b> Unsplash, бесплатная лицензия. Авторы: ${[...new Set(THEME_PRESETS.filter(p => p.author && p.author !== 'Unsplash').map(p => p.author))].map(U.esc).join(', ')}. Генеративные фоны, молнии и погода нарисованы кодом VERDICT.</div>
@@ -11197,6 +11572,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.21', ['Проверка доказательств: в жалобах и обжалованиях скрипт сам открывает ссылки — удалён ли скриншот (imgur, prnt.sc, yapx…), закрыто ли видео YouTube или файл на Диске', 'Над полем ответа — «Доказательства: ✓ · ✗», по клику список каждой ссылки и кнопка ответа «Ссылки не открываются»', 'Длина видео YouTube: тайм-коды подсказываются, только если видео длиннее 3 минут', 'Выключается в Настройки → Поведение → «Проверка доказательств»']],
     ['1.10.20', ['Настройки: короткие подписи в боковом меню — пункты не переносятся в две строки', 'Ответы: кнопки «Новый раздел» и «Изменить раздел» вместо двух одинаковых «Раздел»; у передачи в списке видна её строка', 'Моя статистика: пока ответов нет — подсказка вместо пустого графика', 'Телефон: переключатели периода и вкладки тем в одну строку, кнопки над ответами ровными рядами', 'О скрипте: отступ перед «Обновлениями»']],
     ['1.10.19', ['Передача с общей итоговой строкой «-» больше не отправляет пустой ответ', 'Импорт ответов: «Отмена» больше не стирает все разделы — замена спрашивается отдельно', 'Импорт настроек без скрытых ответов не «заражает» стандартные настройки', 'Обновление стандартного текста не стирает твою итоговую строку', 'Вставка по сокращению учитывается в «Моей статистике»', 'Последний раздел ответов нельзя удалить', 'Ошибка в одной части скрипта не выключает остальные (панель ответов, навигация, темы)', 'Не хватило места в браузере — теперь видно сообщение, а не тихая потеря', 'Окно обрезки логотипа, закрытое через Esc, не оставляет хвостов']],
     ['1.10.18', ['Темы в высоком качестве: фото и генеративные фоны под размер экрана — на 2K/4K до 2560 px вместо 1920/1600, уже выбранная тема обновится сама', 'Свои фото и живые фоны сохраняются чётче (до 2560×1440, сглаживание при уменьшении)', 'Превью тем в настройках чётче', 'В экономном режиме фоны остаются лёгкими (1920)']],
