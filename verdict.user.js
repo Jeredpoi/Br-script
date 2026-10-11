@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.18
+// @version      1.10.19
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -54,7 +54,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.18', // подставляет build.sh из @version
+    version: '1.10.19', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -107,7 +107,11 @@ const Store = {
         try {
             localStorage.setItem('vd.' + key, raw);
         } catch {
-            /* ignore */
+            // без GM всё лежит в localStorage форума: переполнилось — говорим, а не теряем молча после перезагрузки
+            if (!this._full) {
+                this._full = true;
+                setTimeout(() => typeof toast === 'function' && toast('Не хватило места в браузере: последнее изменение не сохранится. Удали лишние фото фонов', 'err'), 0);
+            }
         }
     }
 };
@@ -1795,6 +1799,8 @@ const Packs = {
         Store.set('itemsSeen', [...new Set((seenItems || []).concat(allSigs))]);
         // тексты стандартных ответов, которые пользователь не менял, обновляем до новой версии
         const prevTexts = Store.get('defaultTexts', {});
+        // итоговые строки стандартных ответов прошлой версии: свою строку пользователя при обновлении текста не трогаем
+        const prevTails = Store.get('defaultTails', null);
         let updated = 0;
         DEFAULT_PACKS.forEach(dp => {
             const mine = this._v.find(p => p.id === dp.id);
@@ -1804,9 +1810,13 @@ const Packs = {
                 const own = mine.items.find(x => x.title === d.title);
                 if (own && prev !== undefined && own.text === prev && own.text !== d.text) {
                     own.text = d.text;
-                    // вместе с текстом стандартного ответа обновляется и его итоговая строка
-                    if (d.tail !== undefined) own.tail = d.tail;
-                    else delete own.tail;
+                    // вместе с текстом стандартного ответа обновляется и его итоговая строка, если она тоже стандартная
+                    const k = sig(dp.id, d);
+                    const stdTail = prevTails ? (own.tail || '') === (prevTails[k] || '') : own.tail === undefined;
+                    if (stdTail) {
+                        if (d.tail !== undefined) own.tail = d.tail;
+                        else delete own.tail;
+                    }
                     updated++;
                 }
                 // у неизменённых ответов обновляем и подсказку для подбора
@@ -1820,6 +1830,10 @@ const Packs = {
         Store.set(
             'defaultTexts',
             Object.fromEntries(DEFAULT_PACKS.flatMap(p => p.items.map(i => [sig(p.id, i), i.text])))
+        );
+        Store.set(
+            'defaultTails',
+            Object.fromEntries(DEFAULT_PACKS.flatMap(p => p.items.map(i => [sig(p.id, i), i.tail || ''])))
         );
         // деловой стиль итоговых строк: «Передали …» → «Передано …» (свои строки не трогаем)
         if (!Store.get('tailsBiz', false)) {
@@ -2364,8 +2378,8 @@ const Answer = {
             ctx.kind || (found && found.pack.kind) || (item.id && String(item.id).startsWith('bio-') ? 'bio' : '');
         const isTransfer = TRANSFER_VERDICTS.includes(item.verdict) && !body;
         let rawTail = item.tail !== undefined ? item.tail : Tails.get(kind, item.verdict);
-        // у передачи без текста строка «Передано …» — весь ответ: «-» (без итоговой строки) тут не годится
-        if (isTransfer && String(rawTail).trim() === '-') rawTail = Tails.std(kind, item.verdict);
+        // у передачи без текста строка «Передано …» — весь ответ: «-» (без итоговой строки, в т.ч. общей) тут не годится
+        if (isTransfer && /^-?$/.test(String(rawTail).trim())) rawTail = Tails.std(kind, item.verdict);
         const tailText = String(rawTail).trim() === '-' ? '' : this.fill(rawTail, v).trim();
         const tail = tailText
             ? `[COLOR=${pal[item.verdict] || pal[VERDICT_BASE[item.verdict]] || pal.none}][B]${tailText}[/B][/COLOR]`
@@ -3486,6 +3500,13 @@ const Photo = {
         if (this.local('wall', v)) return true;
         this.local('wall', null);
         this.local('thumbs', null);
+        if (this.local('wall', v)) return true;
+        // последний шанс: кэш сгенерированного фона (он сейчас не показывается — фон фото)
+        try {
+            localStorage.removeItem('vd.wallgen');
+        } catch {
+            /* хранилище недоступно */
+        }
         return this.local('wall', v);
     },
     remember(url, data) {
@@ -3495,17 +3516,19 @@ const Photo = {
     },
     load(url, { thumb = false } = {}) {
         if (!/^https:/.test(url)) return Promise.resolve(url);
-        if (this._mem.has(url)) return Promise.resolve(this._mem.get(url));
-        if (this._wait.has(url)) return this._wait.get(url);
+        // превью и полное фото по одному адресу — разные картинки
+        const mk = (thumb ? 't:' : '') + url;
+        if (this._mem.has(mk)) return Promise.resolve(this._mem.get(mk));
+        if (this._wait.has(mk)) return this._wait.get(mk);
         const thumbs = thumb ? this.local('thumbs') || {} : null;
         if (thumbs && thumbs[url]) {
-            this.remember(url, thumbs[url].d);
+            this.remember(mk, thumbs[url].d);
             return Promise.resolve(thumbs[url].d);
         }
         const job = this.fetch(url)
             .then(data => (thumb ? this.shrink(data, 480) : data))
             .then(data => {
-                this.remember(url, data);
+                this.remember(mk, data);
                 if (thumb) {
                     const all = this.local('thumbs') || {};
                     all[url] = { d: data, t: Date.now() };
@@ -3515,8 +3538,8 @@ const Photo = {
                 }
                 return data;
             })
-            .finally(() => this._wait.delete(url));
-        this._wait.set(url, job);
+            .finally(() => this._wait.delete(mk));
+        this._wait.set(mk, job);
         return job;
     },
     // превью пережимаем в маленький JPEG
@@ -6453,6 +6476,8 @@ const Shortcodes = {
         this.hide();
         Editor.insert(this.bar.form, Answer.build(e.item, this.bar.ctx()));
         Usage.bump(e.item.id);
+        // вставка по сокращению тоже идёт в «Мою статистику»
+        this.bar.lastItem = { item: e.item, ctx: this.bar.ctx() };
         const st = Settings.get().status;
         this.bar.pending = st.apply && st.map[e.item.verdict] ? e.item.verdict : null;
         this.bar.pendingOpen = Packs.keepsOpen(e.item);
@@ -6892,6 +6917,8 @@ const Logo = {
             e.preventDefault();
         };
         const move = e => {
+            // окно закрыли через Esc мимо close(): снимаем слушатели окна при первом же движении
+            if (!scrim.isConnected) return close();
             if (!drag) return;
             const p = e.touches ? e.touches[0] : e;
             const dx = p.clientX - drag.sx,
@@ -6902,7 +6929,7 @@ const Logo = {
             } else r.w = Math.max(30, drag.r.w + Math.max(dx, dy * shapes[shape][1]));
             fit();
         };
-        const up = () => (drag = null);
+        const up = () => (scrim.isConnected ? (drag = null) : close());
         box.addEventListener('mousedown', down);
         box.addEventListener('touchstart', down, { passive: false });
         addEventListener('mousemove', move);
@@ -7762,7 +7789,8 @@ const SettingsUI = {
         mk('plus', 'Ответ', 'pri', () => this.editItem(null));
         mk('plus', 'Раздел', '', () => this.editPack(null));
         mk('edit', 'Раздел', 'ghost', () => this.editPack(this.packSel));
-        if (this.packSel !== 'common')
+        // последний раздел не удаляем: без разделов вкладка ответов не откроется
+        if (this.packSel !== 'common' && packs.length > 1)
             mk('trash', '', 'ghost danger', () => {
                 const p = Packs.find(this.packSel);
                 if (!confirm(`Удалить раздел «${p.name}» со всеми ответами?`)) return;
@@ -7833,7 +7861,18 @@ const SettingsUI = {
                     throw new Error('Это не файл ответов VERDICT');
                 data.packs = Packs.clean(data.packs);
                 if (!data.packs.length) throw new Error('В файле нет ответов');
-                const mode = confirm('ОК — добавить к текущим, Отмена — заменить всё') ? 'merge' : 'replace';
+                // «Отмена» не должна стирать все ответы: замена спрашивается отдельно
+                let mode = confirm('Добавить ответы из файла к текущим?\n\nОК — добавить, Отмена — другие варианты')
+                    ? 'merge'
+                    : '';
+                if (
+                    !mode &&
+                    confirm(
+                        'Заменить ВСЕ текущие ответы ответами из файла?\n\nОК — заменить, Отмена — ничего не делать'
+                    )
+                )
+                    mode = 'replace';
+                if (!mode) return;
                 if (mode === 'replace') Packs._v = data.packs;
                 else
                     data.packs.forEach(np => {
@@ -9126,7 +9165,7 @@ const SettingsUI = {
             this.upload(d => {
                 if (!d || d.type !== 'settings') throw new Error('Это не файл настроек VERDICT');
                 if (!d.settings || typeof d.settings !== 'object') throw new Error('В файле нет настроек');
-                Settings._v = Settings.clean(deepMerge(DEFAULT_SETTINGS, d.settings));
+                Settings._v = Settings.clean(deepMerge(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), d.settings));
                 Settings.save();
                 Theme.apply();
                 Launcher.sync();
@@ -11131,6 +11170,7 @@ const Mojibake = {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    ['1.10.19', ['Передача с общей итоговой строкой «-» больше не отправляет пустой ответ', 'Импорт ответов: «Отмена» больше не стирает все разделы — замена спрашивается отдельно', 'Импорт настроек без скрытых ответов не «заражает» стандартные настройки', 'Обновление стандартного текста не стирает твою итоговую строку', 'Вставка по сокращению учитывается в «Моей статистике»', 'Последний раздел ответов нельзя удалить', 'Ошибка в одной части скрипта не выключает остальные (панель ответов, навигация, темы)', 'Не хватило места в браузере — теперь видно сообщение, а не тихая потеря', 'Окно обрезки логотипа, закрытое через Esc, не оставляет хвостов']],
     ['1.10.18', ['Темы в высоком качестве: фото и генеративные фоны под размер экрана — на 2K/4K до 2560 px вместо 1920/1600, уже выбранная тема обновится сама', 'Свои фото и живые фоны сохраняются чётче (до 2560×1440, сглаживание при уменьшении)', 'Превью тем в настройках чётче', 'В экономном режиме фоны остаются лёгкими (1920)']],
     ['1.10.17', ['Безопасность: пропуск «Будьте осторожны» работает только на настоящей странице перехода — пост с такими словами больше не может увести на чужой сайт', 'Передача — без баннера и подписи, даже со своей пустой итоговой строкой', 'Просмотр фото на телефоне: масштаб двумя пальцами, рисует только один палец', 'Приближенное фото не сбрасывается при повороте экрана и открытии клавиатуры', 'Колесо над панелями просмотра не листает форум, уведомления видны поверх фото, двойной клик по фону не закрывает окно']],
     ['1.10.16', ['Просмотр фото: пока следующее фото грузится, пометки не ложатся на предыдущее']],
@@ -11539,65 +11579,84 @@ const Stuck = {
     }
 };
 
+// шаг запуска отдельно от остальных: ошибка в одном не выключает весь скрипт
+function safe(fn) {
+    try {
+        fn();
+    } catch (err) {
+        console.warn('VERDICT:', err);
+    }
+}
+
 function boot() {
-    Access.migrate();
-    Perf.probe(() => {
-        Theme.lastKey = null;
-        Theme.apply();
-        toast('Форум подтормаживал, включил экономный режим тем (Фоны и прозрачность)', 'info');
+    safe(() => Access.migrate());
+    safe(() =>
+        Perf.probe(() => {
+            Theme.lastKey = null;
+            Theme.apply();
+            toast('Форум подтормаживал, включил экономный режим тем (Фоны и прозрачность)', 'info');
+        })
+    );
+    // миграции настроек: сломанная не мешает запуску
+    safe(() => {
+        // прошлая сборка хранила превью и фон в GM, освобождаем
+        if (!Store.get('phV2', false)) {
+            THEME_PRESETS.filter(p => p.photo).forEach(p => Store.set('ph:' + UNSPLASH(p.photo, 480), null));
+            Store.set('wallData', null);
+            Store.set('phV2', true);
+        }
+        // фото готовой темы под большой экран: раньше всегда грузилось 1920 и на 2K/4K мылило.
+        // только вверх и только со старых 1920: на двух мониторах адрес не переписывается при каждом заходе
+        safe(() => {
+            const wl = Settings.get().theme.wall,
+                m =
+                    wl &&
+                    wl.kind === 'url' &&
+                    /^https:\/\/unsplash\.com\/photos\/[^/]+\/download\?force=true&w=(\d+)$/.exec(wl.url || '');
+            if (m && m[1] === '1920' && wallW() > 1920)
+                Settings.patch(x => (x.theme.wall.url = noW(x.theme.wall.url) + '&w=' + wallW()));
+        });
+        // шрифт ответа по умолчанию теперь Verdana
+        if (!Store.get('fontV2', false)) {
+            if (!Settings.get().answer.font) Settings.patch(x => (x.answer.font = 'Verdana'));
+            Store.set('fontV2', true);
+        }
+        // старый дефолт плотности 0.78
+        // размытие под блоками было включено по умолчанию и тормозило прокрутку: стандартное значение выключаем
+        if (!Store.get('blurV3', false)) {
+            Settings.patch(x => {
+                if (x.theme.blur === 14) x.theme.blur = 0;
+            });
+            Store.set('blurV3', true);
+        }
+        if (!Store.get('qnavTopV1', false)) {
+            Settings.patch(x => {
+                if (x.qnav.place === 'nav' || x.qnav.place === 'staff') x.qnav.place = 'top';
+            });
+            Store.set('qnavTopV1', true);
+        }
+        if (!Store.get('glassV2', false)) {
+            if (Settings.get().theme.glass === 0.78) Settings.patch(x => (x.theme.glass = 0.3));
+            Store.set('glassV2', true);
+        }
+        // свои итоговые строки передачи — в строгой форме
+        if (!Store.get('ownTailsStrict', false)) {
+            Settings.patch(x => {
+                for (const k of Object.keys(x.answer.tails || {})) x.answer.tails[k] = strictTail(x.answer.tails[k]);
+            });
+            Store.set('ownTailsStrict', true);
+        }
     });
-    // прошлая сборка хранила превью и фон в GM, освобождаем
-    if (!Store.get('phV2', false)) {
-        THEME_PRESETS.filter(p => p.photo).forEach(p => Store.set('ph:' + UNSPLASH(p.photo, 480), null));
-        Store.set('wallData', null);
-        Store.set('phV2', true);
-    }
-    // фото готовой темы под текущий экран: раньше всегда грузилось 1920 и на 2K/4K мылило
-    {
-        const wl = Settings.get().theme.wall,
-            m = wl && wl.kind === 'url' && /^https:\/\/unsplash\.com\/photos\/[^/]+\/download\?force=true&w=(\d+)$/.exec(wl.url || '');
-        if (m && +m[1] !== wallW()) Settings.patch(x => (x.theme.wall.url = noW(x.theme.wall.url) + '&w=' + wallW()));
-    }
-    // шрифт ответа по умолчанию теперь Verdana
-    if (!Store.get('fontV2', false)) {
-        if (!Settings.get().answer.font) Settings.patch(x => (x.answer.font = 'Verdana'));
-        Store.set('fontV2', true);
-    }
-    // старый дефолт плотности 0.78
-    // размытие под блоками было включено по умолчанию и тормозило прокрутку: стандартное значение выключаем
-    if (!Store.get('blurV3', false)) {
-        Settings.patch(x => {
-            if (x.theme.blur === 14) x.theme.blur = 0;
-        });
-        Store.set('blurV3', true);
-    }
-    if (!Store.get('qnavTopV1', false)) {
-        Settings.patch(x => {
-            if (x.qnav.place === 'nav' || x.qnav.place === 'staff') x.qnav.place = 'top';
-        });
-        Store.set('qnavTopV1', true);
-    }
-    if (!Store.get('glassV2', false)) {
-        if (Settings.get().theme.glass === 0.78) Settings.patch(x => (x.theme.glass = 0.3));
-        Store.set('glassV2', true);
-    }
-    // свои итоговые строки передачи — в строгой форме
-    if (!Store.get('ownTailsStrict', false)) {
-        Settings.patch(x => {
-            for (const k of Object.keys(x.answer.tails || {})) x.answer.tails[k] = strictTail(x.answer.tails[k]);
-        });
-        Store.set('ownTailsStrict', true);
-    }
-    Theme.apply();
+    safe(() => Theme.apply());
     U.ready(() => {
-        Theme.apply();
-        Launcher.sync();
-        mountBars();
-        mountAutograph();
-        Logo.apply();
-        QNav.mount();
-        Bus.on('settings', () => QNav.mount());
-        Stuck.start();
+        safe(() => Theme.apply());
+        safe(() => Launcher.sync());
+        safe(mountBars);
+        safe(mountAutograph);
+        safe(() => Logo.apply());
+        safe(() => QNav.mount());
+        Bus.on('settings', () => safe(() => QNav.mount()));
+        safe(() => Stuck.start());
         // не срочное — когда браузер свободен, чтобы страница стала отзывчивой быстрее
         const idle = window.requestIdleCallback || (f => setTimeout(f, 200));
         idle(
@@ -11620,17 +11679,17 @@ function boot() {
         );
         // ответы разработчика на обращения
         setTimeout(() => {
-            Feedback.notify();
-            Stats.ping();
-            Updater.watch();
+            safe(() => Feedback.notify());
+            safe(() => Stats.ping());
+            safe(() => Updater.watch());
         }, 4000);
         // редактор XenForo появляется не сразу
         const mo = new MutationObserver(
             U.debounce(() => {
-                mountBars();
-                mountAutograph();
-                Logo.apply();
-                Nicks.scan();
+                safe(mountBars);
+                safe(mountAutograph);
+                safe(() => Logo.apply());
+                safe(() => Nicks.scan());
             }, 250)
         );
         mo.observe(document.body, { childList: true, subtree: true });
