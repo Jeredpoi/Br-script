@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.22
+// @version      1.10.23
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
+// @match        https://logs.blackrussia.online/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_info
@@ -54,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.22', // подставляет build.sh из @version
+    version: '1.10.23', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -254,6 +255,8 @@ const DEFAULT_SETTINGS = {
     hints: true,
     // проверять, открываются ли ссылки-доказательства в жалобах
     proofs: true,
+    // тема VERDICT и на сайте логов
+    logsTheme: true,
     shortcodes: true,
     hotkeys: true,
     launcher: true
@@ -9412,6 +9415,17 @@ const SettingsUI = {
         );
         g.appendChild(
             this.row(
+                'Тема на сайте логов',
+                'Фон и цвета VERDICT на logs.blackrussia.online — те же, что на форуме',
+                this.sw(s.logsTheme !== false, v =>
+                    Settings.patch(x => {
+                        x.logsTheme = v;
+                    })
+                )
+            )
+        );
+        g.appendChild(
+            this.row(
                 'Шорткоды «/ключ» в поле ввода',
                 'Напиши /нд и нажми Tab',
                 this.sw(s.shortcodes, v =>
@@ -11574,8 +11588,128 @@ const Mojibake = {
     }
 };
 
+// сайт логов (logs.blackrussia.online): там VERDICT только оформляет страницу темой из своих настроек
+// и отвечает отдельному скрипту «VERDICT Логи» — без VERDICT тот не запускается
+const IS_LOGS = location.hostname === 'logs.blackrussia.online';
+
+// оформление сайта логов (Bootstrap + Vue): прозрачные панели поверх фона VERDICT, цвета темы
+function logsCss(s) {
+    const t = s.theme,
+        C = k => Colors.get(s, k);
+    const glass = Math.round(t.glass * 100);
+    const blur =
+        t.blur && !Perf.light()
+            ? `backdrop-filter: blur(${t.blur}px) saturate(1.2); -webkit-backdrop-filter: blur(${t.blur}px) saturate(1.2);`
+            : '';
+    return `
+:root { --vd-acc: ${s.accent}; --vd-acc2: ${C('accent2')}; --vd-head: ${C('header')}; --vd-block: ${C('blocks')}; --vd-border: ${C('border')};
+  --vd-glass: color-mix(in srgb, var(--vd-block) ${glass}%, transparent); --vd-line: color-mix(in srgb, var(--vd-border) ${Colors.auto(s, 'border') ? 12 : 40}%, transparent); }
+#vd-wall::after { content: ""; position: absolute; inset: 0; z-index: 2; background: linear-gradient(180deg, rgba(5,6,9,${Math.min(0.95, t.dim + 0.15)}), rgba(5,6,9,${Math.min(0.95, t.dim + 0.05)}) 30%, rgba(5,6,9,${Math.min(0.95, t.dim + 0.2)})); }
+html { background: #07080b !important; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 55%, transparent) transparent; }
+body, #app, #game-logs-app, .bg-dark, main, .container-fluid, #content-placeholder { background-color: transparent !important; }
+#content-placeholder { background-image: none !important; }
+body { color: #e4e6eb !important; }
+::selection { background: color-mix(in srgb, var(--vd-acc) 78%, #1a1b20) !important; color: #fff !important; }
+/* шапка */
+nav.navbar, .navbar.bg-dark { background: color-mix(in srgb, var(--vd-head) 88%, transparent) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 35%, transparent) !important; ${blur} }
+.navbar-brand { color: #fff !important; font-weight: 800; letter-spacing: .02em; }
+.navbar .nav-link { color: #d6d8de !important; }
+.navbar .nav-link:hover { color: var(--vd-acc) !important; }
+h1, h2, h3, h4, h5, h6 { color: #fff !important; text-shadow: 0 0 22px color-mix(in srgb, var(--vd-acc) 45%, transparent) !important; }
+/* панель фильтров и окна */
+#log-filter-section, #log-filter, .card, .modal-content, .dropdown-menu, .offcanvas {
+  background: var(--vd-glass) !important; border: 1px solid var(--vd-line) !important; border-radius: 16px !important; color: #e4e6eb !important; ${blur} }
+.modal-header, .modal-footer { border-color: var(--vd-line) !important; }
+.form-label, label { color: color-mix(in srgb, var(--vd-acc2) 55%, #fff) !important; }
+.form-control, .form-select, .input-group-text, .dp__input, .autoComplete_wrapper > input, textarea, select {
+  background-color: rgba(0,0,0,.35) !important; color: #e8eaee !important; border: 1px solid var(--vd-line) !important; border-radius: 10px !important; }
+.form-control::placeholder, .dp__input::placeholder { color: rgba(228,230,235,.4) !important; }
+.form-control:focus, .form-select:focus, .dp__input:focus { border-color: var(--vd-acc) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--vd-acc) 25%, transparent) !important; }
+.btn-primary, .btn-success { background: var(--vd-acc) !important; border-color: var(--vd-acc) !important; color: #fff !important; }
+.btn-outline-light, .btn-secondary { border-color: var(--vd-line) !important; background: rgba(255,255,255,.06) !important; color: #e4e6eb !important; }
+.dropdown-item { color: #e4e6eb !important; }
+.dropdown-item:hover, .dropdown-item.active { background: color-mix(in srgb, var(--vd-acc) 30%, transparent) !important; }
+/* таблица логов: строка записи — стекло, строка с описанием — темнее */
+#log-table, .table { --bs-table-bg: transparent; --bs-table-color: #e4e6eb; background: transparent !important; color: #e4e6eb !important; border-collapse: separate !important; border-spacing: 0 !important; }
+#log-table thead th, .table thead th { background: color-mix(in srgb, var(--vd-head) 80%, transparent) !important; color: color-mix(in srgb, var(--vd-acc2) 60%, #fff) !important; border-bottom: 1px solid color-mix(in srgb, var(--vd-acc) 45%, transparent) !important; }
+#log-table tr.first-row td { background: var(--vd-glass) !important; border-top: 1px solid var(--vd-line) !important; border-bottom: 0 !important; }
+#log-table tr.second-row td { background: rgba(0,0,0,.32) !important; border-bottom: 1px solid var(--vd-line) !important; color: #cfd2d8 !important; }
+#log-table tr.first-row:hover td { background: color-mix(in srgb, var(--vd-acc) 16%, var(--vd-glass)) !important; }
+.td-category a { color: var(--vd-acc2) !important; }
+.td-player-name a { color: color-mix(in srgb, var(--vd-acc) 70%, #fff) !important; }
+.pagination .page-link { background: var(--vd-glass) !important; border-color: var(--vd-line) !important; color: #e4e6eb !important; }
+.pagination .active .page-link { background: var(--vd-acc) !important; border-color: var(--vd-acc) !important; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--vd-acc) 50%, transparent); border-radius: 9px; border: 2px solid transparent; background-clip: content-box; }
+`;
+}
+
+// «VERDICT Логи» спрашивает, есть ли VERDICT, и получает то, что ему нужно: версию, id доступа и цвета темы
+const Bridge = {
+    _lid: null,
+    // id для доступа к логам: из id установки, но не он сам — страница видит эти события
+    async lid() {
+        if (this._lid) return this._lid;
+        const data = new TextEncoder().encode(Mail.uid() + ':verdict-logs');
+        const buf = await crypto.subtle.digest('SHA-256', data);
+        this._lid = [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+        return this._lid;
+    },
+    start() {
+        document.documentElement.dataset.verdict = BRAND.version;
+        document.addEventListener('verdict:ping', async () => {
+            const s = Settings.get();
+            let lid = '';
+            try {
+                lid = await this.lid();
+            } catch {
+                /* без crypto.subtle (не https) — без id */
+            }
+            const detail = JSON.stringify({
+                v: BRAND.version,
+                lid,
+                nick: IS_LOGS ? '' : Page.me(),
+                accent: s.accent,
+                accent2: Colors.get(s, 'accent2'),
+                menuGlass: s.theme.menuGlass
+            });
+            document.dispatchEvent(new CustomEvent('verdict:pong', { detail }));
+        });
+        // «VERDICT Логи» мог запуститься раньше и уже ждать
+        document.dispatchEvent(new CustomEvent('verdict:ready'));
+    }
+};
+
+function bootLogs() {
+    safe(() => Bridge.start());
+    safe(() => Theme.apply());
+    U.ready(() => {
+        safe(() => Theme.apply());
+        safe(() => Launcher.sync());
+        Bus.on('settings', () => safe(() => Theme.apply()));
+        document.addEventListener(
+            'keydown',
+            e => {
+                const k = e.key.toLowerCase();
+                if (e.altKey && (k === 'v' || k === 'м' || e.code === 'KeyV')) {
+                    e.preventDefault();
+                    SettingsUI.open('themes');
+                }
+            },
+            true
+        );
+    });
+}
+
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.10.23',
+        [
+            'VERDICT работает и на сайте логов logs.blackrussia.online: тот же фон, цвета и прозрачность, что на форуме (выключается в «Поведении» → «Тема на сайте логов»)',
+            'Подготовка к отдельному скрипту «VERDICT Логи» для доверенных: он работает только вместе с VERDICT'
+        ]
+    ],
     [
         '1.10.22',
         [
@@ -11921,7 +12055,8 @@ const Theme = {
             return;
         }
         const s = Settings.get();
-        if (!s.theme.enabled) {
+        // на сайте логов тему можно выключить отдельно
+        if (!s.theme.enabled || (IS_LOGS && s.logsTheme === false)) {
             if (!this.on) return;
             this.on = false;
             this.fade();
@@ -11949,7 +12084,7 @@ const Theme = {
         this.fade();
         const parent = document.head || document.documentElement;
         if (this.style.parentNode !== parent) parent.appendChild(this.style);
-        this.style.textContent = forumCss(s);
+        this.style.textContent = IS_LOGS ? logsCss(s) : forumCss(s);
         const put = () => {
             if (!document.body) return;
             if (!this.wall || !this.wall.isConnected) {
@@ -12145,6 +12280,7 @@ function safe(fn) {
 }
 
 function boot() {
+    safe(() => Bridge.start());
     safe(() => Access.migrate());
     safe(() =>
         Perf.probe(() => {
@@ -12277,6 +12413,7 @@ function boot() {
     });
 }
 
-boot();
+if (IS_LOGS) bootLogs();
+else boot();
 
 })();
