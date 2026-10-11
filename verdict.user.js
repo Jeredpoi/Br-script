@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.23
+// @version      1.10.24
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.23', // подставляет build.sh из @version
+    version: '1.10.24', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9624,6 +9624,27 @@ const SettingsUI = {
         const wn = U.h(`<button class="btn">${icon('spark', 14)}Открыть</button>`);
         wn.onclick = () => WhatsNew.showAll();
         upd.appendChild(this.row('Что нового', 'Что добавлялось и исправлялось во всех версиях', wn));
+        // у кого стоит «VERDICT Логи» — его версия и обновление здесь же
+        const lv = Store.get('logsVer', '');
+        if (lv) {
+            const lb = U.h(`<button class="btn">${icon('spark', 14)}Проверить</button>`);
+            const row = this.row('VERDICT Логи', `Версия ${lv}`, lb);
+            const sub = row.querySelector('small');
+            lb.onclick = async () => {
+                if (lb.dataset.v) return LogsUpdate.install();
+                lb.disabled = true;
+                const r = await LogsUpdate.check();
+                lb.disabled = false;
+                if (r.err) return toast('Не удалось проверить: ' + r.err, 'err');
+                if (Updater.newer(r.v, lv)) {
+                    lb.dataset.v = r.v;
+                    lb.className = 'btn pri';
+                    lb.innerHTML = `${icon('download', 14)}Обновить до ${U.esc(r.v)}`;
+                    if (sub) sub.textContent = `Версия ${lv} · доступна ${r.v}`;
+                } else toast(`У тебя последняя версия VERDICT Логи ${lv}`);
+            };
+            upd.appendChild(row);
+        }
         const card = this.card(pane, 'Статистика');
         card.appendChild(
             this.row(
@@ -11675,8 +11696,42 @@ const Bridge = {
             });
             document.dispatchEvent(new CustomEvent('verdict:pong', { detail }));
         });
+        // «VERDICT Логи» сообщает свою версию — в «О скрипте» появляется проверка его обновлений
+        document.addEventListener('verdict:logs', e => {
+            try {
+                const v = JSON.parse(e.detail).v;
+                if (/^\d+\.\d+\.\d+$/.test(v) && Store.get('logsVer', '') !== v) Store.set('logsVer', v);
+            } catch {
+                /* чужое событие */
+            }
+        });
         // «VERDICT Логи» мог запуститься раньше и уже ждать
         document.dispatchEvent(new CustomEvent('verdict:ready'));
+    }
+};
+
+// обновления «VERDICT Логи»: версия из опубликованной шапки скрипта
+const LogsUpdate = {
+    BASE: 'https://raw.githubusercontent.com/Jeredpoi/BRr-Logs/main/',
+    check() {
+        return new Promise(res => {
+            if (typeof GM_xmlhttpRequest !== 'function') return res({ err: 'нет связи' });
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: this.BASE + 'verdict-logs.meta.js?t=' + Date.now(),
+                timeout: 15000,
+                onload: r => {
+                    const m = r.status === 200 && /@version\s+([\d.]+)/.exec(r.responseText || '');
+                    if (m) return res({ v: m[1] });
+                    res({ err: r.status === 404 ? 'репозиторий закрыт или файла нет' : 'ответ ' + r.status });
+                },
+                onerror: () => res({ err: 'нет связи' }),
+                ontimeout: () => res({ err: 'долго не отвечает' })
+            });
+        });
+    },
+    install() {
+        window.open(this.BASE + 'verdict-logs.user.js?t=' + Date.now(), '_blank', 'noopener');
     }
 };
 
@@ -11703,6 +11758,12 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.10.24',
+        [
+            'Если у тебя стоит «VERDICT Логи» — в «О скрипте» появилась его версия и кнопка проверки и обновления'
+        ]
+    ],
     [
         '1.10.23',
         [
