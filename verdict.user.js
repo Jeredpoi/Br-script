@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.2
+// @version      1.11.3
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.2', // подставляет build.sh из @version
+    version: '1.11.3', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10053,6 +10053,32 @@ const Mail = {
             if (j.error) throw new Error(j.error);
             return j;
         })();
+    }
+};
+
+// раз в день отметка «скрипт запущен»: id установки, версия, должность и браузер, без ника и текстов
+const Stats = {
+    ping() {
+        if (!Settings.get().stats || !Mail.url()) return;
+        const today = new Date().toISOString().slice(0, 10);
+        // раз в день и сразу после обновления, чтобы в таблице была свежая версия
+        if (Store.get('pingDay', '') === today && Store.get('pingV', '') === BRAND.version) return;
+        Store.set('pingDay', today);
+        Store.set('pingV', BRAND.version);
+        const ua = navigator.userAgent;
+        Mail.call({
+            action: 'ping',
+            uid: Mail.uid(),
+            v: BRAND.version,
+            role: Access.title() || 'не выбрана',
+            br: ((ua.match(/(Edg|OPR|YaBrowser|Firefox|Chrome|Safari)\/\d+/) || ['?'])[0] || '?').replace('/', ' ')
+        }).catch(() => Store.set('pingDay', ''));
+    }
+};
+
+const Feedback = {
+    configured() {
+        return !!Mail.url();
     },
     diag() {
         const ua = navigator.userAgent;
@@ -10120,12 +10146,17 @@ const Mail = {
         } catch {
             return;
         }
-        const fresh = this.unseen();
-        if (fresh.length)
-            toast(`Разработчик ответил: «${fresh[0].m.title}»`, 'info', {
-                label: 'Открыть',
-                run: () => SettingsUI.open('contact')
-            });
+        this.alert();
+    },
+    // всплывашка о новом ответе — один раз на ответ
+    alert() {
+        const fresh = this.unseen().filter(x => !(this._alerted || (this._alerted = new Set())).has(x.r.id));
+        if (!fresh.length) return;
+        fresh.forEach(x => this._alerted.add(x.r.id));
+        toast(`Разработчик ответил: «${fresh[0].m.title}»`, 'info', {
+            label: 'Открыть',
+            run: () => SettingsUI.open('contact')
+        });
     }
 };
 
@@ -10473,11 +10504,17 @@ const Updater = {
         if (!Mail.url() || (!force && Date.now() - Store.get('newsChecked', 0) < 5 * 60e3)) return null;
         Store.set('newsChecked', Date.now());
         try {
-            const r = await Mail.call({ action: 'news' }).catch(e => {
+            // свой код — чтобы почта сказала, есть ли свежий ответ разработчика
+            const r = await Mail.call({ action: 'news', uid: Mail.uid() }).catch(e => {
                 Store.set('newsErr', e.message);
                 throw e;
             });
             Store.set('newsErr', '');
+            // разработчик ответил после последней проверки — забираем ответ сразу, а не через пару часов
+            if (r && r.rp && r.rp > Store.get('fbChecked', 0))
+                Feedback.check(true)
+                    .then(() => Feedback.alert())
+                    .catch(() => {});
             const n = r && r.news;
             // последняя рассылка видна во вкладке «Связь»
             if (n && /^\d+\.\d+\.\d+$/.test(n.v)) Store.set('newsLast', n);
@@ -11867,6 +11904,14 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.3',
+        [
+            'Снова работает «Связь с разработчиком»: с 1.10.26 обращение нельзя было отправить — окно падало с ошибкой',
+            'Ответы разработчика приходят в течение ~5 минут, а не через пару часов',
+            'Снова отправляется ежедневная отметка установки (версия и должность) — разработчик видит, кто пользуется VERDICT'
+        ]
+    ],
     [
         '1.11.2',
         ['Подсказки к теме снова видят слово «бан» в жалобах: раньше оно не распознавалось и подходящие ответы не предлагались']
