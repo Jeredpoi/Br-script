@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.1
+// @version      1.11.2
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.1', // подставляет build.sh из @version
+    version: '1.11.2', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -2242,7 +2242,7 @@ const Analyzer = {
             )
         )
             tag('thirdparty', 'Похоже, жалоба подана за другого человека');
-        if (/заблокир|\bбан\b|забанил|блокировк/i.test(text)) tag('ban', 'Речь о блокировке аккаунта');
+        if (/заблокир|(^|[^а-яё])бан($|[^а-яё])|забанил|блокировк/i.test(text)) tag('ban', 'Речь о блокировке аккаунта');
         if (kinds.has('appeal') && !uniq.some(vkProfile)) tag('novk', 'В обжаловании нет ссылки на ВКонтакте');
         const hints = Object.entries(tags)
             .filter(([, v]) => v.strong)
@@ -11867,6 +11867,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.2',
+        ['Подсказки к теме снова видят слово «бан» в жалобах: раньше оно не распознавалось и подходящие ответы не предлагались']
+    ],
     [
         '1.11.1',
         [
