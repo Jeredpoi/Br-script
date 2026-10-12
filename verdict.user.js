@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.0
+// @version      1.11.1
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.0', // подставляет build.sh из @version
+    version: '1.11.1', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -553,6 +553,7 @@ const ICONS = {
     palette:
         '<path d="M12 3.5a8.5 8.5 0 100 17c1.2 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.2-2.2H17a3.5 3.5 0 003.5-3.5c0-5.2-3.8-9.5-8.5-9.5z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10" cy="7.3" r="1.2" fill="currentColor"/><circle cx="14.5" cy="7.3" r="1.2" fill="currentColor"/>',
     forward: '<path d="M14 5l6 6-6 6"/><path d="M20 11H9a5 5 0 00-5 5v3"/>',
+    tag: '<path d="M3.5 12.2V4.5a1 1 0 011-1h7.7l8.3 8.3a1 1 0 010 1.4l-7.3 7.3a1 1 0 01-1.4 0z"/><circle cx="8" cy="8" r="1.4"/>',
     heart: '<path d="M12 19.5S4 15 4 9.5A4 4 0 0112 7a4 4 0 018 2.5C20 15 12 19.5 12 19.5z"/>',
     eyeOff: '<path d="M3 3l18 18"/><path d="M10.6 5.6A9.6 9.6 0 0112 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 01-3 3.7M6.6 6.7C4 8.4 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.2-1"/><path d="M9.9 9.9a3 3 0 004.2 4.2"/>',
     badge: '<rect x="4" y="3.5" width="16" height="17" rx="2.5"/><circle cx="12" cy="10" r="2.6"/><path d="M8 16.5c.7-1.6 2.2-2.4 4-2.4s3.3.8 4 2.4"/>',
@@ -5280,6 +5281,10 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .item { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 9px; border-radius: 10px; text-align: left; transition: background .12s; }
 .item:hover, .item.sel { background: rgba(255,255,255,.055); }
 .item.sel { box-shadow: inset 2px 0 0 var(--c); }
+.item.compact { padding-top: 7px; padding-bottom: 7px; }
+.item.compact .t b { font-weight: 650; }
+.item.now { background: color-mix(in srgb, var(--c) 10%, transparent); }
+.item .now-mark { margin-left: auto; display: grid; place-items: center; color: var(--c); }
 .item .t { flex: 1; min-width: 0; }
 .item .t b { display: block; font-weight: 650; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item .t small { display: block; color: var(--tx-3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -5983,6 +5988,9 @@ function itemRow(item, pack, opts = {}) {
         .trim();
     const fit = opts.fit;
     const badge = fit && fit.strong ? '<span class="fit-b" title="Рекомендуем">★</span>' : '';
+    if (opts.sub === '')
+        return U.h(`<button class="item compact ${item.now ? 'now' : ''}" style="--c:${item.color || verdictOf(item).color}" ${item.now ? 'title="Сейчас у темы"' : ''}>
+        ${vicon(item.verdict, true)}<span class="t"><b>${U.esc(item.title)}</b></span>${item.now ? `<span class="now-mark">${icon('check', 14)}</span>` : ''}</button>`);
     return U.h(`<button class="item ${fit ? 'fit' + (fit.strong ? ' rec' : '') : ''}" style="--c:${verdictOf(item).color}" ${fit ? `title="${U.esc(fit.why)}"` : ''}>
         ${vicon(item.verdict, true)}
         <span class="t"><b>${badge}${U.esc(item.title)}</b><small>${U.esc(opts.sub || (fit ? fit.why : '') || (TRANSFER_VERDICTS.includes(item.verdict) ? forwardSub(item.verdict) : plain || 'Свой текст'))}</small></span>
@@ -6433,7 +6441,8 @@ class ReplyBar {
             `<button class="chip" data-v="${v}" style="--c:${VERDICTS[v].color}">${vicon(v)}${VERDICTS[v].label}<span class="cnt">${count(chipVerdicts(v))}</span>${fitDot(chipVerdicts(v))}</button>`;
         const freq = this.entries().some(e => Usage.count(e.item.id) > 0);
         const fwTargets = FORWARD.filter(v => Access.verdictVisible(v) && s.status.map[v]);
-        const fwChip = `<button class="chip" data-g="forward" style="--c:#3aa0ff" title="Передать обращение — сменить префикс темы, без ответа"><span class="vic" style="--c:#3aa0ff">${icon('forward', 13)}</span>Передать<span class="cnt">${fwTargets.length}</span>${icon('down', 12).replace('class="vi"', 'class="vi down"')}</button>`;
+        const pxStatus = ['approve', 'close', 'deny', 'review', 'watched'].filter(v => Access.verdictVisible(v) && s.status.map[v]);
+        const fwChip = `<button class="chip" data-g="forward" style="--c:#3aa0ff" title="Префикс темы: статус или передача — без ответа"><span class="vic" style="--c:#3aa0ff">${icon('tag', 13)}</span>Префикс${icon('down', 12).replace('class="vi"', 'class="vi down"')}</button>`;
         const docked = Settings.get().barStyle !== 'card';
         this.host.classList.toggle('vd-docked', docked);
         this.root.innerHTML = `<div class="bar ${docked ? 'docked' : 'edge'}">
@@ -6442,7 +6451,7 @@ class ReplyBar {
               ${PRIMARY.filter(v => Access.verdictVisible(v))
                   .map(chip)
                   .join('')}
-              ${fwTargets.length && Page.isThread() ? fwChip : ''}
+              ${Page.isThread() ? fwChip : ''}
               ${count(['none']) ? `<button class="chip ghost" data-v="none" style="--c:${VERDICTS.none.color}">${vicon('none')}Свой текст</button>` : ''}
               ${freq ? `<button class="chip ghost" data-g="freq" style="--c:var(--acc)"><span class="vic" style="--c:var(--acc)">${icon('star', 13)}</span>Частые</button>` : ''}
               </div>
@@ -6487,13 +6496,13 @@ class ReplyBar {
                         iconName: VERDICTS[v].icon,
                         entries: this.entries(chipVerdicts(v)),
                         group: packs.length ? 'pack' : null,
-                        onStatusOnly: s.status.map[v] ? () => this.statusOnly(v) : null
+                        onStatusOnly: null
                     })
                 )
             );
         });
         const fw = this.root.querySelector('[data-g="forward"]');
-        if (fw) hoverOpen(fw, () => Picker.open(fw, this.forwardMenu(fwTargets)));
+        if (fw) hoverOpen(fw, () => Picker.open(fw, this.forwardMenu(fwTargets, pxStatus)));
         const fq = this.root.querySelector('[data-g="freq"]');
         if (fq)
             hoverOpen(fq, () =>
@@ -6675,27 +6684,38 @@ class ReplyBar {
         this.renderHints();
     }
     // меню «Передать»: кому передать (префикс по настройкам статусов) и другие префиксы
-    forwardMenu(targets) {
+    // меню «Префикс»: статус (одобрено, закрыто, отказано…), передача, другие префиксы — всё без ответа в тему
+    forwardMenu(targets, statuses) {
+        const map = Settings.get().status.map;
         const cur = Page.prefixLabel().toLowerCase();
-        const isCur = name => !!cur && !!name && cur === name.toLowerCase();
-        const fwPack = { name: 'Передать (префикс, без ответа)' },
-            pxPack = { name: 'Другой префикс' };
-        const entries = targets.map(v => {
-            const name = PREFIX_NAMES[Settings.get().status.map[v].prefix];
-            return { item: { id: 'fw:' + v, verdict: v, title: FORWARD_TO[v] || VERDICTS[v].label, text: '', fw: v, now: isCur(name) }, pack: fwPack };
+        // галочка — у первого пункта с префиксом темы (у куратора и «На рассмотрении» он может совпадать)
+        let marked = false;
+        const isCur = id => {
+            if (marked || !cur || !PREFIX_NAMES[id] || cur !== PREFIX_NAMES[id].toLowerCase()) return false;
+            return (marked = true);
+        };
+        const st = { name: 'Статус' },
+            fw = { name: 'Передать' },
+            px = { name: 'Другое' };
+        const used = new Set();
+        const entries = [];
+        statuses.forEach(v => {
+            used.add(map[v].prefix);
+            entries.push({ item: { id: 'st:' + v, verdict: v, title: VERDICTS[v].label, text: '', st: v, now: isCur(map[v].prefix) }, pack: st });
         });
-        OTHER_PREFIXES.forEach(id =>
-            entries.push({ item: { id: 'px:' + id, verdict: 'none', title: PREFIX_NAMES[id], text: '', px: id, now: isCur(PREFIX_NAMES[id]) }, pack: pxPack })
+        targets.forEach(v => entries.push({ item: { id: 'fw:' + v, verdict: v, title: FORWARD_TO[v] || VERDICTS[v].label, text: '', fw: v, now: isCur(map[v].prefix) }, pack: fw }));
+        OTHER_PREFIXES.filter(id => !used.has(id)).forEach(id =>
+            entries.push({ item: { id: 'px:' + id, verdict: 'none', color: '#8b8f9a', title: PREFIX_NAMES[id], text: '', px: id, now: isCur(id) }, pack: px })
         );
         return {
-            title: 'Передать',
+            title: 'Префикс',
             color: '#3aa0ff',
-            iconName: 'forward',
+            iconName: 'tag',
             entries,
             solo: true,
             group: 'pack',
-            subOf: e => (e.item.now ? 'сейчас у темы · ' : '') + (e.item.fw ? forwardSub(e.item.fw, e.item.title) : 'только префикс, тема остаётся как есть'),
-            onPick: item => (item.fw ? this.forward(item.fw) : this.setPrefix(item.px))
+            subOf: () => '',
+            onPick: item => (item.st ? this.statusOnly(item.st) : item.fw ? this.forward(item.fw) : this.setPrefix(item.px))
         };
     }
     async forward(v, item) {
@@ -11847,6 +11867,13 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.1',
+        [
+            'Кнопка «Префикс» вместо «Передать»: сверху Одобрено, Закрыто, Отказано, дальше передача и остальные префиксы — всё без ответа в тему',
+            'Меню без лишних подписей, текущий префикс темы отмечен галочкой'
+        ]
+    ],
     [
         '1.11.0',
         [
