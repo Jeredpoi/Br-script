@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.10.28
+// @version      1.11.0
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.10.28', // подставляет build.sh из @version
+    version: '1.11.0', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -191,6 +191,34 @@ const strictTail = t => {
     return hit ? hit[1] : t;
 };
 const VERDICT_BASE = { watched: 'approve', zga: 'ga', cur: 'review', spec: 'ga' };
+// префиксы тем форума (prefix_id → название), как в фильтре «prefix_id=…»
+const PREFIX_NAMES = {
+    1: 'Важно',
+    2: 'На рассмотрении',
+    4: 'Отказано',
+    5: 'Реализовано',
+    6: 'Решено',
+    7: 'Закрыто',
+    8: 'Одобрено',
+    9: 'Рассмотрено',
+    10: 'Команде проекта',
+    11: 'Специальному администратору',
+    12: 'Главному администратору',
+    13: 'Техническому специалисту',
+    14: 'Ожидание',
+    15: 'Проверено'
+};
+// передача теперь — только префикс темы, без ответа: кому → как называется в списке
+const FORWARD_TO = {
+    tech: 'Техническому специалисту',
+    cur: 'Куратору',
+    zga: 'Заместителю ГА',
+    ga: 'Главному администратору',
+    spec: 'Специальному администратору',
+    kp: 'Команде проекта'
+};
+// другие префиксы из того же меню: меняется только префикс, открытие и закреп темы не трогаем
+const OTHER_PREFIXES = [14, 1, 6, 15, 5];
 
 const DEFAULT_SETTINGS = {
     accent: '#e5484d',
@@ -2610,6 +2638,14 @@ const Status = {
             '_xfSet[sticky]': '1'
         });
         return true;
+    },
+    // только префикс: без discussion_open/sticky и _xfSet XenForo оставляет тему как есть
+    async prefix(id) {
+        const base = Page.threadBase();
+        if (!base) throw new Error('это не тема форума');
+        const title = Page.title();
+        if (!title) throw new Error('не найден заголовок темы');
+        await this.xf(base + 'edit', { prefix_id: String(id), title });
     },
     async reply(bb) {
         const base = Page.threadBase();
@@ -5927,6 +5963,18 @@ function postPreview(bb, verdict) {
     return `${status}<div class="xf-body" style="${U.esc(style)}">${BB.render(bb)}</div>`;
 }
 
+// что сделает передача: какой префикс, закроет ли и закрепит ли тему (по настройкам статусов)
+function forwardSub(v, title) {
+    const cfg = Settings.get().status.map[v];
+    if (!cfg) return 'префикс не настроен';
+    const name = PREFIX_NAMES[cfg.prefix] || '#' + cfg.prefix;
+    // префикс называется как адресат — не повторяем
+    const bits = name === title ? ['только префикс'] : [`префикс «${name}»`];
+    if (!cfg.open) bits.push('закроет');
+    if (cfg.sticky) bits.push('закрепит');
+    return bits.join(' · ');
+}
+
 function itemRow(item, pack, opts = {}) {
     const plain = String(item.text || '')
         .replace(/\{cursor\}/g, '')
@@ -5937,7 +5985,7 @@ function itemRow(item, pack, opts = {}) {
     const badge = fit && fit.strong ? '<span class="fit-b" title="Рекомендуем">★</span>' : '';
     return U.h(`<button class="item ${fit ? 'fit' + (fit.strong ? ' rec' : '') : ''}" style="--c:${verdictOf(item).color}" ${fit ? `title="${U.esc(fit.why)}"` : ''}>
         ${vicon(item.verdict, true)}
-        <span class="t"><b>${badge}${U.esc(item.title)}</b><small>${U.esc(opts.sub || (fit ? fit.why : '') || plain || (TRANSFER_VERDICTS.includes(item.verdict) ? item.tail || Tails.get('', item.verdict) : 'Свой текст'))}</small></span>
+        <span class="t"><b>${badge}${U.esc(item.title)}</b><small>${U.esc(opts.sub || (fit ? fit.why : '') || (TRANSFER_VERDICTS.includes(item.verdict) ? forwardSub(item.verdict) : plain || 'Свой текст'))}</small></span>
         ${item.key ? `<span class="kbd">/${U.esc(item.key)}</span>` : ''}
         ${opts.canEdit ? `<span class="edit" title="Изменить текст ответа">${icon('edit', 14)}</span>` : ''}
         ${opts.canHide ? `<span class="hide" title="Скрыть ответ (вернуть: Настройки › Должность)">${icon('eyeOff', 14)}</span>` : ''}
@@ -5998,7 +6046,9 @@ function buildPicker(opts) {
         const e = shown[sel];
         if (prev && e) {
             node.style.setProperty('--c', verdictOf(e.item).color);
-            prev.innerHTML = postPreview(Answer.build(e.item, opts.ctx ? opts.ctx() : {}), e.item.verdict);
+            prev.innerHTML = TRANSFER_VERDICTS.includes(e.item.verdict)
+                ? `<div class="muted" style="padding:10px 2px">Ответ в тему не пишется — теме ставится префикс. ${U.esc(forwardSub(e.item.verdict))}.</div>`
+                : postPreview(Answer.build(e.item, opts.ctx ? opts.ctx() : {}), e.item.verdict);
         }
     };
     const draw = () => {
@@ -6382,7 +6432,8 @@ class ReplyBar {
         const chip = v =>
             `<button class="chip" data-v="${v}" style="--c:${VERDICTS[v].color}">${vicon(v)}${VERDICTS[v].label}<span class="cnt">${count(chipVerdicts(v))}</span>${fitDot(chipVerdicts(v))}</button>`;
         const freq = this.entries().some(e => Usage.count(e.item.id) > 0);
-        const fwChip = `<button class="chip" data-g="forward" style="--c:#3aa0ff"><span class="vic" style="--c:#3aa0ff">${icon('forward', 13)}</span>Передать<span class="cnt">${count(FORWARD.filter(v => Access.verdictVisible(v)))}</span>${fitDot(FORWARD.filter(v => Access.verdictVisible(v)))}${icon('down', 12).replace('class="vi"', 'class="vi down"')}</button>`;
+        const fwTargets = FORWARD.filter(v => Access.verdictVisible(v) && s.status.map[v]);
+        const fwChip = `<button class="chip" data-g="forward" style="--c:#3aa0ff" title="Передать обращение — сменить префикс темы, без ответа"><span class="vic" style="--c:#3aa0ff">${icon('forward', 13)}</span>Передать<span class="cnt">${fwTargets.length}</span>${icon('down', 12).replace('class="vi"', 'class="vi down"')}</button>`;
         const docked = Settings.get().barStyle !== 'card';
         this.host.classList.toggle('vd-docked', docked);
         this.root.innerHTML = `<div class="bar ${docked ? 'docked' : 'edge'}">
@@ -6391,7 +6442,7 @@ class ReplyBar {
               ${PRIMARY.filter(v => Access.verdictVisible(v))
                   .map(chip)
                   .join('')}
-              ${FORWARD.some(v => Access.verdictVisible(v)) ? fwChip : ''}
+              ${fwTargets.length && Page.isThread() ? fwChip : ''}
               ${count(['none']) ? `<button class="chip ghost" data-v="none" style="--c:${VERDICTS.none.color}">${vicon('none')}Свой текст</button>` : ''}
               ${freq ? `<button class="chip ghost" data-g="freq" style="--c:var(--acc)"><span class="vic" style="--c:var(--acc)">${icon('star', 13)}</span>Частые</button>` : ''}
               </div>
@@ -6442,19 +6493,7 @@ class ReplyBar {
             );
         });
         const fw = this.root.querySelector('[data-g="forward"]');
-        if (fw)
-            hoverOpen(fw, () =>
-                Picker.open(
-                    fw,
-                    this.pickerOpts({
-                        title: 'Передать',
-                        color: '#3aa0ff',
-                        iconName: 'forward',
-                        entries: this.entries(FORWARD.filter(v => Access.verdictVisible(v))),
-                        group: 'verdict'
-                    })
-                )
-            );
+        if (fw) hoverOpen(fw, () => Picker.open(fw, this.forwardMenu(fwTargets)));
         const fq = this.root.querySelector('[data-g="freq"]');
         if (fq)
             hoverOpen(fq, () =>
@@ -6607,6 +6646,7 @@ class ReplyBar {
     }
     async pick(item, instant) {
         if (this.blocked) return;
+        if (TRANSFER_VERDICTS.includes(item.verdict)) return this.forward(item.verdict, item);
         if (instant) {
             if (item.text.includes('{cursor}')) {
                 toast('В шаблоне есть место под свой текст, вставил в поле', 'info');
@@ -6633,6 +6673,55 @@ class ReplyBar {
         this.pending = Settings.get().status.apply && Settings.get().status.map[item.verdict] ? item.verdict : null;
         this.pendingOpen = Packs.keepsOpen(item);
         this.renderHints();
+    }
+    // меню «Передать»: кому передать (префикс по настройкам статусов) и другие префиксы
+    forwardMenu(targets) {
+        const cur = Page.prefixLabel().toLowerCase();
+        const isCur = name => !!cur && !!name && cur === name.toLowerCase();
+        const fwPack = { name: 'Передать (префикс, без ответа)' },
+            pxPack = { name: 'Другой префикс' };
+        const entries = targets.map(v => {
+            const name = PREFIX_NAMES[Settings.get().status.map[v].prefix];
+            return { item: { id: 'fw:' + v, verdict: v, title: FORWARD_TO[v] || VERDICTS[v].label, text: '', fw: v, now: isCur(name) }, pack: fwPack };
+        });
+        OTHER_PREFIXES.forEach(id =>
+            entries.push({ item: { id: 'px:' + id, verdict: 'none', title: PREFIX_NAMES[id], text: '', px: id, now: isCur(PREFIX_NAMES[id]) }, pack: pxPack })
+        );
+        return {
+            title: 'Передать',
+            color: '#3aa0ff',
+            iconName: 'forward',
+            entries,
+            solo: true,
+            group: 'pack',
+            subOf: e => (e.item.now ? 'сейчас у темы · ' : '') + (e.item.fw ? forwardSub(e.item.fw, e.item.title) : 'только префикс, тема остаётся как есть'),
+            onPick: item => (item.fw ? this.forward(item.fw) : this.setPrefix(item.px))
+        };
+    }
+    async forward(v, item) {
+        const label = FORWARD_TO[v] || VERDICTS[v].label;
+        if (!Settings.get().status.map[v]) return toast('Для «' + label + '» не задан префикс: Настройки → Статусы', 'err');
+        try {
+            toast(`Передаю: ${label}…`, 'wait');
+            await Status.apply(v);
+            // в «Мою статистику» передача идёт как раньше
+            MyStats.add(item || { id: 'fw:' + v, verdict: v, title: label }, this.ctx());
+            if (item && item.id) Usage.bump(item.id);
+            toast(`Передано: ${label}`);
+            setTimeout(() => location.reload(), 700);
+        } catch (e) {
+            toast('Префикс не изменён: ' + e.message, 'err');
+        }
+    }
+    async setPrefix(id) {
+        try {
+            toast(`Ставлю префикс «${PREFIX_NAMES[id]}»…`, 'wait');
+            await Status.prefix(id);
+            toast(`Префикс: ${PREFIX_NAMES[id]}`);
+            setTimeout(() => location.reload(), 700);
+        } catch (e) {
+            toast('Префикс не изменён: ' + e.message, 'err');
+        }
     }
     async statusOnly(v) {
         try {
@@ -6849,6 +6938,7 @@ const Shortcodes = {
         }
         Editor.eraseBeforeCaret(this.erase);
         this.hide();
+        if (TRANSFER_VERDICTS.includes(e.item.verdict)) return this.bar.forward(e.item.verdict, e.item);
         Editor.insert(this.bar.form, Answer.build(e.item, this.bar.ctx()));
         Usage.bump(e.item.id);
         // вставка по сокращению тоже идёт в «Мою статистику»
@@ -11757,6 +11847,19 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.0',
+        [
+            'Передача обращений — теперь смена префикса темы, без ответа «Передано …»: «Передать» → кому (тех. специалисту, куратору, ЗГА, ГА, спец. администратору, команде проекта)',
+            'В том же меню — «Другой префикс»: Ожидание, Важно, Решено, Проверено, Реализовано (меняется только префикс)',
+            'В списке видно, какой префикс у темы сейчас и что сделает передача (закроет / закрепит — по настройкам статусов)',
+            'Сокращения передачи («тех», «га»…) и передача из поиска тоже только меняют префикс'
+        ]
+    ],
+    [
+        '1.10.28',
+        ['Сайт логов: строки таблицы и выпадающие списки фильтров больше не белые']
+    ],
     [
         '1.10.27',
         ['Связь с разработчиком надёжнее: обращения и ответы доходят, даже если в браузере несколько аккаунтов Google']
