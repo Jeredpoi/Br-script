@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.4
+// @version      1.11.5
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.4', // подставляет build.sh из @version
+    version: '1.11.5', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -11759,10 +11759,7 @@ function logsCss(s) {
         C = k => Colors.get(s, k);
     const glass = Math.round(t.glass * 100);
     // размытие под панелями на сайте логов отключено — с длинной таблицей оно тормозит прокрутку
-    const blur =
-        false && t.blur && !Perf.light()
-            ? `backdrop-filter: blur(${t.blur}px) saturate(1.2); -webkit-backdrop-filter: blur(${t.blur}px) saturate(1.2);`
-            : '';
+    const blur = '';
     return `
 :root { --vd-acc: ${s.accent}; --vd-acc2: ${C('accent2')}; --vd-head: ${C('header')}; --vd-block: ${C('blocks')}; --vd-border: ${C('border')};
   --vd-glass: color-mix(in srgb, var(--vd-block) ${glass}%, transparent); --vd-line: color-mix(in srgb, var(--vd-border) ${Colors.auto(s, 'border') ? 12 : 40}%, transparent); }
@@ -11782,6 +11779,9 @@ h1, h2, h3, h4, h5, h6 { color: #fff !important; text-shadow: 0 0 22px color-mix
 #log-filter-section, #log-filter, .card, .modal-content, .dropdown-menu, .offcanvas {
   background: var(--vd-glass) !important; border: 1px solid var(--vd-line) !important; border-radius: 16px !important; color: #e4e6eb !important; ${blur} }
 .modal-header, .modal-footer { border-color: var(--vd-line) !important; }
+/* без размытия всплывающие меню и окна — почти сплошные, иначе сквозь них видно таблицу */
+.dropdown-menu, .modal-content, .offcanvas { background: color-mix(in srgb, var(--vd-block) 92%, #0b0c10) !important; }
+#log-filter-section, #log-filter { background: color-mix(in srgb, var(--vd-block) 70%, rgba(11,12,16,.6)) !important; }
 .form-label, label { color: color-mix(in srgb, var(--vd-acc2) 55%, #fff) !important; }
 .form-control, .form-select, .input-group-text, .dp__input, .autoComplete_wrapper > input, textarea, select {
   background-color: rgba(0,0,0,.35) !important; color: #e8eaee !important; border: 1px solid var(--vd-line) !important; border-radius: 10px !important; }
@@ -11906,6 +11906,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.5',
+        ['На сайте логов выпадающие меню и окна снова плотные — сквозь них не просвечивает таблица']
+    ],
     [
         '1.11.4',
         [
