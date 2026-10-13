@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.3
+// @version      1.11.4
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.3', // подставляет build.sh из @version
+    version: '1.11.4', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -4360,7 +4360,8 @@ const Fx = {
     sync() {
         const s = Settings.get(),
             cfg = s.theme.fx;
-        const on = s.theme.enabled && cfg.effect !== 'none' && !this.reduced();
+        // погода и частицы на сайте логов не нужны — там важна скорость таблицы
+        const on = s.theme.enabled && cfg.effect !== 'none' && !this.reduced() && location.hostname !== 'logs.blackrussia.online';
         this.cfg = cfg;
         this.tod = TOD.resolve(cfg.tod);
         if (Theme.tod) Theme.tod.style.backgroundImage = s.theme.enabled ? TOD.tint[this.tod] : 'none';
@@ -11757,8 +11758,9 @@ function logsCss(s) {
     const t = s.theme,
         C = k => Colors.get(s, k);
     const glass = Math.round(t.glass * 100);
+    // размытие под панелями на сайте логов отключено — с длинной таблицей оно тормозит прокрутку
     const blur =
-        t.blur && !Perf.light()
+        false && t.blur && !Perf.light()
             ? `backdrop-filter: blur(${t.blur}px) saturate(1.2); -webkit-backdrop-filter: blur(${t.blur}px) saturate(1.2);`
             : '';
     return `
@@ -11904,6 +11906,12 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.4',
+        [
+            'Сайт логов работает быстрее: там больше нет анимированного фона, погоды и размытия под панелями — длинная таблица прокручивается без рывков'
+        ]
+    ],
     [
         '1.11.3',
         [
@@ -12356,8 +12364,9 @@ const Theme = {
                     s.theme.rotate === 'off' &&
                     w.kind === 'photo' &&
                     Store.get('photos', []).find(p => p.id === w.id && p.scene);
-                if (scene && !Fx.reduced()) this.setScene(scene);
-                else if (G && G.live && !Fx.reduced()) this.setLive(w.seed);
+                // на сайте логов — без анимации: под большой таблицей она тормозит прокрутку
+                if (scene && !Fx.reduced() && !IS_LOGS) this.setScene(scene);
+                else if (G && G.live && !Fx.reduced() && !IS_LOGS) this.setLive(w.seed);
                 // фон рисуется после первой отрисовки страницы: генерация (~200 мс при первом заходе) не задерживает форум
                 else
                     requestAnimationFrame(() =>
