@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.6
+// @version      1.11.7
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.6', // подставляет build.sh из @version
+    version: '1.11.7', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -378,6 +378,18 @@ const Settings = {
 };
 
 // экономный режим: без blur, погода и живой фон в низком разрешении; auto включает сам при лагах
+// идёт прокрутка: анимации фона и погоды на это время замирают — все силы на плавный скролл
+const Scrolling = { on: false, _t: 0, subs: [], set(v) { this.on = v; document.documentElement.classList.toggle('vd-scrolling', v); this.subs.forEach(f => { try { f(v); } catch { /* ignore */ } }); } };
+addEventListener(
+    'scroll',
+    () => {
+        if (!Scrolling.on) Scrolling.set(true);
+        clearTimeout(Scrolling._t);
+        Scrolling._t = setTimeout(() => Scrolling.set(false), 160);
+    },
+    { passive: true, capture: true }
+);
+
 const Perf = {
     light() {
         const p = Settings.get().theme.perf;
@@ -4181,8 +4193,13 @@ const Relief = { STEPS: ${Relief.STEPS}, ${Relief.scene}, ${Relief.draw} };
 const raf = self.requestAnimationFrame ? f => self.requestAnimationFrame(f) : f => setTimeout(() => f(performance.now()), 16);
 let cv, ctx, sc, t = 0, speed = 0, last = 0, fps = 30;
 const draw = () => Relief.draw(ctx, cv.width, cv.height, sc, t);
+let paused = false;
 const tick = now => {
     raf(tick);
+    if (paused) {
+        last = now;
+        return;
+    }
     if (!speed || now - last < 1000 / fps - 2) return;
     const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
     last = now;
@@ -4202,6 +4219,10 @@ onmessage = e => {
         cv.height = m.h;
     }
     if (m.fps) fps = m.fps;
+    if ('pause' in m) {
+        paused = m.pause;
+        return;
+    }
     if ('speed' in m) {
         speed = m.speed;
         last = 0;
@@ -4255,6 +4276,9 @@ class LiveWall {
             if (sp !== this.speed && this.worker) this.worker.postMessage({ speed: (this.speed = sp) });
         };
         Bus.on('settings', this.onSettings);
+        // прокрутка — воркер не рисует новые кадры
+        this.onScroll = v => this.worker && this.worker.postMessage({ pause: v });
+        Scrolling.subs.push(this.onScroll);
         return true;
     }
     // экономный режим: меньше пикселей и кадров, браузер растягивает холст сам
@@ -4283,7 +4307,7 @@ class LiveWall {
     frame(now) {
         if (!this.cv) return;
         this.raf = requestAnimationFrame(this.frame);
-        if (document.hidden) return;
+        if (document.hidden || Scrolling.on) return;
         const speed = Settings.get().theme.liveSpeed;
         if (!speed || now - this.last < 1000 / (Perf.light() ? 30 : 60) - 2) return;
         const dt = this.last ? Math.min(0.1, (now - this.last) / 1000) : 0;
@@ -4294,6 +4318,7 @@ class LiveWall {
     stop() {
         cancelAnimationFrame(this.raf);
         if (this.onSettings) Bus.off('settings', this.onSettings);
+        if (this.onScroll) Scrolling.subs = Scrolling.subs.filter(f => f !== this.onScroll);
         if (this.worker) this.worker.terminate();
         this.worker = null;
         removeEventListener('resize', this.resize);
@@ -4796,6 +4821,11 @@ const Fx = {
                 return;
             }
             this.raf = requestAnimationFrame(step);
+            // прокрутка — кадр не рисуем (последний остаётся на экране)
+            if (Scrolling.on) {
+                this.last = now;
+                return;
+            }
             // экономный: 30 fps
             if (this.k < 1 && this.last && now - this.last < 31) return;
             const dt = Math.min(0.05, (now - (this.last || now)) / 1000);
@@ -4992,7 +5022,7 @@ class LiveScene {
     frame(now) {
         if (!this.cv) return;
         this.raf = requestAnimationFrame(this.frame);
-        if (document.hidden) return;
+        if (document.hidden || Scrolling.on) return;
         if (this.k < 1 && this.last && now - this.last < 31) return;
         const dt = this.last ? Math.min(0.05, (now - this.last) / 1000) : 0;
         this.last = now;
@@ -11927,6 +11957,12 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.7',
+        [
+            'Форум листается плавнее: пока крутишь страницу, живой фон и погода замирают, а посты за пределами экрана не отрисовываются заранее'
+        ]
+    ],
+    [
         '1.11.6',
         [
             'Настройки и счётчики ответов больше не затираются, если форум открыт в нескольких вкладках',
@@ -12307,7 +12343,13 @@ const BASE_CSS = `
 #vd-qnav-menu { position: fixed; z-index: 2147482000; min-width: 220px; padding: 6px; border-radius: 12px; background: rgba(18,20,26,.96); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 20px 50px -12px rgba(0,0,0,.8); backdrop-filter: blur(16px); }
 #vd-qnav-menu a { display: block; padding: 9px 12px; border-radius: 8px; color: #e4e6eb !important; text-decoration: none !important; font-size: 13px; }
 #vd-qnav-menu a:hover, #vd-qnav-menu a.on { background: color-mix(in srgb, var(--vd-acc, #e5484d) 20%, transparent); color: #fff !important; }
-#vd-wall, #vd-tod, #vd-fx { position: fixed; inset: 0; pointer-events: none; user-select: none; }
+#vd-wall, #vd-tod, #vd-fx { position: fixed; inset: 0; pointer-events: none; user-select: none; contain: strict; will-change: transform; }
+#vd-tod, #vd-fx { transform: translateZ(0); }
+/* посты за пределами экрана не рисуются, пока до них не долистали (размер браузер запоминает) */
+.message--post, .structItem--thread { content-visibility: auto; contain-intrinsic-size: auto 360px; }
+.structItem--thread { contain-intrinsic-size: auto 72px; }
+/* во время прокрутки подсветка под курсором не пересчитывается */
+html.vd-scrolling body { pointer-events: none; }
 #vd-wall { z-index: -3; transform: scale(1.03); background: #07080b; opacity: 0; transition: opacity .8s ease, filter .12s linear; }
 #vd-wall.on { opacity: 1; }
 #vd-wall .vd-wl { position: absolute; inset: 0; background: center/cover no-repeat; opacity: 0; transition: opacity .9s ease; }
