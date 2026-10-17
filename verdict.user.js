@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.5
+// @version      1.11.6
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.5', // подставляет build.sh из @version
+    version: '1.11.6', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -369,7 +369,9 @@ const Settings = {
         Store.set('settings', this._v);
         Bus.emit('settings');
     },
+    // свежая копия из хранилища: изменения в соседней вкладке не затираются
     patch(fn) {
+        this._v = null;
         fn(this.get());
         this.save();
     }
@@ -1998,6 +2000,8 @@ const Packs = {
 const Usage = {
     _v: Store.get('usage', {}),
     bump(id) {
+        // перечитываем: счётчики других вкладок не затираются
+        this._v = Store.get('usage', {}) || {};
         this._v[id] = (this._v[id] || 0) + 1;
         Store.set('usage', this._v);
     },
@@ -2255,7 +2259,7 @@ const Analyzer = {
         const now = new Date();
         let last = null;
         // с годом это точно дата; без года месяц двумя цифрами и не «в 10.05», «время 10.05», «1.5 км»
-        for (const m of text.matchAll(/(^|[^\d.])(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?(?![\d.])/g)) {
+        for (const m of text.matchAll(/(^|[^\d.])(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?(?!\d)(?!\.\d)/g)) {
             const [, , dd, mm, yy] = m;
             if (!yy) {
                 if (mm.length < 2) continue;
@@ -2609,7 +2613,8 @@ const Status = {
         fd.append('_xfWithData', '1');
         fd.append('_xfResponseType', 'json');
         Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
-        const res = await fetch(url, { method: 'POST', body: fd, credentials: 'same-origin' });
+        // keepalive: XenForo после ответа может сразу перейти на другую страницу — запрос всё равно дойдёт
+        const res = await fetch(url, { method: 'POST', body: fd, credentials: 'same-origin', keepalive: true });
         let json = null;
         try {
             json = await res.clone().json();
@@ -6201,7 +6206,9 @@ const Picker = {
         node.style.top = top + 'px';
         anchor.classList.add('open');
         this.cur = { node, anchor, focus: p.focus };
-        if (this._focus) p.focus();
+        this._openedAt = Date.now();
+        // на телефоне фокус открыл бы клавиатуру, страница прокрутится и список сразу закроется
+        if (this._focus && !this._touch) p.focus();
         node.addEventListener('mouseleave', () => this._armClose());
         node.addEventListener('mouseenter', () => this._cancelClose());
     },
@@ -6221,7 +6228,7 @@ const Picker = {
     }
 };
 // при прокрутке список закрывается, иначе он висит отдельно от кнопки
-addEventListener('scroll', () => Picker.cur && Picker.close(), { passive: true });
+addEventListener('scroll', () => Picker.cur && Date.now() - (Picker._openedAt || 0) > 600 && Picker.close(), { passive: true });
 addEventListener('pointerdown', e => (Picker._touch = e.pointerType === 'touch'), true);
 // клик мимо открытого списка закрывает его
 addEventListener(
@@ -6252,6 +6259,8 @@ document.addEventListener('keydown', e => {
     const scrims = Layer.el().querySelectorAll('.scrim');
     const top = scrims[scrims.length - 1];
     if (top) {
+        // окно «Кто ты на сервере?» закрыли Esc — не спрашивать заново на каждой теме
+        if (!Settings.get().role && top.querySelector('[data-a="done"]')) safe(() => Access.setRole('ga'));
         top.remove();
         if (SettingsUI.scrim === top) SettingsUI.scrim = null;
     }
@@ -7595,6 +7604,8 @@ const QNav = {
     },
     spot(place) {
         if (place === 'staff') place = 'top';
+        // верхняя полоса на телефоне скрыта — без панели персонала ставим в навигацию
+        if (place === 'top' && innerWidth <= 650 && !document.querySelector('.p-staffBar')) place = 'nav';
         if (place === 'top') {
             const host = this.pin(true);
             if (host) return { place, host };
@@ -9658,9 +9669,17 @@ const SettingsUI = {
                 <label class="muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-k="open" ${cfg.open ? 'checked' : ''}>открыта</label>
                 <label class="muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-k="sticky" ${cfg.sticky ? 'checked' : ''}>закреп</label></div>`);
             ctl.querySelector('input[type=number]').onchange = e =>
-                Settings.patch(x => {
-                    x.status.map[v].prefix = +e.target.value;
-                });
+                {
+                    // пустое поле — не 0: prefix_id=0 снял бы префикс у темы
+                    const n = parseInt(e.target.value, 10);
+                    if (!(n > 0)) {
+                        e.target.value = cfg.prefix;
+                        return toast('Нужен номер префикса', 'err');
+                    }
+                    Settings.patch(x => {
+                        x.status.map[v].prefix = n;
+                    });
+                }
             ctl.querySelectorAll('[data-k]').forEach(
                 c =>
                     (c.onchange = () =>
@@ -11893,7 +11912,8 @@ function bootLogs() {
         document.addEventListener(
             'keydown',
             e => {
-                const k = e.key.toLowerCase();
+                if (!Settings.get().hotkeys) return;
+                const k = (e.key || '').toLowerCase();
                 if (e.altKey && (k === 'v' || k === 'м' || e.code === 'KeyV')) {
                     e.preventDefault();
                     SettingsUI.open('themes');
@@ -11906,6 +11926,17 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.6',
+        [
+            'Настройки и счётчики ответов больше не затираются, если форум открыт в нескольких вкладках',
+            'Подсказка «жалоба подана поздно» видит дату и в конце предложения («Дата: 12.10.2026.»)',
+            'На телефоне список ответов больше не закрывается сразу после открытия',
+            'Статус темы меняется, даже если форум после ответа сразу переходит на другую страницу',
+            'Ctrl+K в редакторе снова вставляет ссылку; быстрая навигация видна на телефоне',
+            'Пустой номер префикса в настройках больше не снимает префикс с темы'
+        ]
+    ],
     [
         '1.11.5',
         ['На сайте логов выпадающие меню и окна снова плотные — сквозь них не просвечивает таблица']
@@ -12125,7 +12156,8 @@ const WhatsNew = {
     start() {
         // до 1.10.1 версия не запоминалась: есть свои настройки — значит, это обновление с 1.10.0
         const seen = Store.get('seenVersion', null) || (Store.get('packs', null) ? '1.10.0' : null);
-        Store.set('updAwait', null);
+        // ждём перезагрузку после обновления — сбрасываем, только когда версия уже сменилась
+        if (seen && seen !== BRAND.version) Store.set('updAwait', null);
         // первая установка — без окна; после обновления — что изменилось с прошлой версии
         if (!seen || seen === BRAND.version || !Updater.newer(BRAND.version, seen)) {
             if (seen !== BRAND.version) Store.set('seenVersion', BRAND.version);
@@ -12330,7 +12362,7 @@ const Theme = {
             const st = this.style;
             this.lastKey = null;
             setTimeout(() => {
-                if (!Settings.get().theme.enabled && st) st.remove();
+                if (!this.on && st) st.remove();
             }, 60);
             return;
         }
@@ -12650,8 +12682,10 @@ function boot() {
             'keydown',
             e => {
                 if (!Settings.get().hotkeys) return;
-                const k = e.key.toLowerCase();
-                if ((e.ctrlKey || e.metaKey) && (k === 'k' || k === 'л' || e.code === 'KeyK') && Bars.length) {
+                const k = (e.key || '').toLowerCase();
+                // в редакторе Ctrl+K — «вставить ссылку», его не перехватываем
+                const inEditor = () => e.composedPath().some(n => n.classList && n.classList.contains('fr-element'));
+                if ((e.ctrlKey || e.metaKey) && (k === 'k' || k === 'л' || e.code === 'KeyK') && Bars.length && !inEditor()) {
                     e.preventDefault();
                     e.stopPropagation();
                     Palette.open(Bars[0]);
