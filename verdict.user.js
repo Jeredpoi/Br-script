@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.8
+// @version      1.11.9
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.8', // подставляет build.sh из @version
+    version: '1.11.9', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10872,6 +10872,9 @@ const Nicks = {
 // ← → — другие фото этого поста, Esc или клик по фону — закрыть. Ctrl/Shift/средняя кнопка — как обычно.
 const Lightbox = {
     IMG: /\.(png|jpe?g|gif|webp|bmp|avif)(\?[^#]*)?(#.*)?$/i,
+    // видео: прямой файл проигрываем в окне просмотра, а не показываем его превью как фото
+    VID_RE: /\.(mp4|webm|mov|m4v|ogv)(\?[^#]*)?(#.*)?$/i,
+    VID: 'vdvideo:',
     // страницы хостингов: картинку берём из og:image
     PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|radikal\.cloud|radikal\.ru|fastpic\.org|fastpic\.ru|joxi\.ru|joxi\.net|imageban\.ru|ipic\.su|funkyimg\.com|pixs\.ru|savepice\.ru|imgsh\.net|vfl\.ru|picshare\.ru|lightshot\.com|disk\.yandex\.ru|disk\.yandex\.com|yadi\.sk|cloud\.mail\.ru|photos\.app\.goo\.gl|ibb\.org|wertigo\.ru)$/i,
     // точно не фото — такие ссылки не проверяем
@@ -10949,7 +10952,10 @@ const Lightbox = {
                 method: 'HEAD',
                 url,
                 timeout: 3000,
-                onload: r => fin(/content-type:\s*image\//i.test(r.responseHeaders || '') ? r.finalUrl || url : null),
+                onload: r => {
+                    const h = r.responseHeaders || '';
+                    fin(/content-type:\s*image\//i.test(h) ? r.finalUrl || url : /content-type:\s*video\//i.test(h) ? this.VID + (r.finalUrl || url) : null);
+                },
                 onerror: () => fin(null),
                 ontimeout: () => fin(null)
             });
@@ -10973,6 +10979,7 @@ const Lightbox = {
             u = new URL(r);
         }
         if (this.IMG.test(u.pathname)) return u.href;
+        if (this.VID_RE.test(u.pathname)) return this.VID + u.href;
         const host = u.hostname.toLowerCase();
         // Google Диск: превью файла
         const gd = host === 'drive.google.com' && u.pathname.match(/\/file\/d\/([\w-]{10,})/);
@@ -10997,6 +11004,25 @@ const Lightbox = {
                 timeout: 10000,
                 onload: r => {
                     const t = String(r.responseText || '');
+                    // страница с видео: берём сам ролик, а не его картинку-превью
+                    const v =
+                        t.match(/<meta[^>]+property=["']og:video(?::secure_url|:url)?["'][^>]+content=["']([^"']+)/i) ||
+                        t.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:video(?::secure_url|:url)?["']/i) ||
+                        t.match(/<meta[^>]+name=["']twitter:player:stream["'][^>]+content=["']([^"']+)/i) ||
+                        t.match(/<video[^>]+src=["']([^"']+)["']/i) ||
+                        t.match(/<source[^>]+src=["']([^"']+\.(?:mp4|webm|mov|m4v)(?:\?[^"']*)?)["']/i);
+                    if (/content-type:\s*video\//i.test(r.responseHeaders || '')) return resolve(this.VID + (r.finalUrl || url));
+                    if (v) {
+                        try {
+                            const vu = new URL(v[1].replace(/&amp;/g, '&'), r.finalUrl || url).href;
+                            // плеер-страница (embed), а не файл — проиграть не выйдет, откроем сайт
+                            return resolve(this.VID + (this.VID_RE.test(new URL(vu).pathname) || /\.(mp4|webm)|video|mime=video/i.test(vu) ? vu : ''));
+                        } catch {
+                            return resolve(this.VID);
+                        }
+                    }
+                    // видео без прямой ссылки (og:type «video») — не выдаём превью за фото
+                    if (/<meta[^>]+property=["']og:type["'][^>]+content=["']video/i.test(t)) return resolve(this.VID);
                     const m =
                         t.match(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)/i) ||
                         t.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image/i) ||
@@ -11158,6 +11184,8 @@ const Lightbox = {
             img,.ink{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;will-change:transform}
             img{-webkit-user-drag:none;box-shadow:0 18px 60px rgba(0,0,0,.6);border-radius:6px;transition:opacity .15s}
             .ink{pointer-events:none;overflow:visible}
+            .vid{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:calc(100vw - 120px);max-height:calc(100vh - 150px);
+                border-radius:8px;box-shadow:0 18px 60px rgba(0,0,0,.6);background:#000;z-index:2;cursor:default}
             .snap img,.snap .ink{transition:transform .22s cubic-bezier(.2,.8,.2,1),opacity .15s}
             .bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:10px 14px;
                 background:linear-gradient(rgba(0,0,0,.6),transparent);z-index:3}
@@ -11572,7 +11600,10 @@ const Lightbox = {
         const el = [...document.querySelectorAll('a[data-vd-img]')].find(x => this.url(x) === href);
         const src = (el && el.dataset.vdImg) || (await this.resolve(href)) || (await this.probe(this.real(href)));
         if (token !== this.token || !this.img) return;
+        this.unvideo();
         if (!src) return this.fail(href);
+        if (src.startsWith(this.VID)) return this.video(src.slice(this.VID.length), href, token);
+        this.$('.tools').style.display = this.$('.hint').style.display = '';
         this.src = src;
         this.img.onload = () => {
             if (token !== this.token) return;
@@ -11590,9 +11621,59 @@ const Lightbox = {
             const u = this.urls[(k + n) % n];
             if (n > 1 && u)
                 Promise.resolve(this.resolve(u)).then(s => {
-                    if (s) new Image().src = s;
+                    if (s && !String(s).startsWith(this.VID)) new Image().src = s;
                 });
         });
+    },
+    // видео в окне просмотра: со звуком и перемоткой; пометки и масштаб для видео не нужны
+    video(vsrc, href, token) {
+        const msg = this.$('.msg');
+        if (!vsrc) {
+            msg.style.display = '';
+            msg.innerHTML = 'Это видео — его можно посмотреть только на сайте.<br><br>';
+            const b = document.createElement('button');
+            b.textContent = 'Открыть видео';
+            b.onclick = () => window.open(href, '_blank', 'noopener');
+            msg.appendChild(b);
+            this.$('.tools').style.display = 'none';
+            return;
+        }
+        const v = document.createElement('video');
+        v.className = 'vid';
+        v.controls = true;
+        v.autoplay = true;
+        v.playsInline = true;
+        v.preload = 'auto';
+        v.setAttribute('referrerpolicy', 'no-referrer');
+        v.onloadeddata = () => token === this.token && (msg.style.display = 'none');
+        v.onerror = () => {
+            if (token !== this.token) return;
+            this.unvideo();
+            msg.style.display = '';
+            msg.innerHTML = 'Не удалось проиграть видео здесь.<br><br>';
+            const b = document.createElement('button');
+            b.textContent = 'Открыть в новой вкладке';
+            b.onclick = () => window.open(href, '_blank', 'noopener');
+            msg.appendChild(b);
+        };
+        v.src = vsrc;
+        this.src = vsrc;
+        this.$('.tools').style.display = this.$('.hint').style.display = 'none';
+        this.$('.zoom').textContent = '';
+        this.$('.stage').appendChild(v);
+        this.vid = v;
+    },
+    unvideo() {
+        if (!this.vid) return;
+        try {
+            this.vid.pause();
+            this.vid.removeAttribute('src');
+            this.vid.load();
+        } catch {
+            /* ignore */
+        }
+        this.vid.remove();
+        this.vid = null;
     },
     fail(href) {
         const msg = this.$('.msg');
@@ -11679,6 +11760,7 @@ const Lightbox = {
         this.save();
         removeEventListener('keydown', this.onKey, true);
         removeEventListener('resize', this.onResize);
+        this.unvideo();
         this.host.remove();
         this.host = this.img = this.svg = null;
         this.token = null;
@@ -11947,6 +12029,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.9',
+        ['Видео в доказательствах проигрывается прямо в окне просмотра (со звуком и перемоткой), а не показывается как фото']
+    ],
     [
         '1.11.8',
         ['Живой фон и погода снова двигаются и во время прокрутки']
