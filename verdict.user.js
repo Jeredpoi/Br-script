@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.29
+// @version      1.11.30
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -35,6 +35,8 @@
 // @connect      cloud.mail.ru
 // @connect      freeimage.host
 // @connect      catbox.moe
+// @connect      api.pixhost.to
+// @connect      pixhost.to
 // @connect      *
 // @run-at       document-start
 // @noframes
@@ -59,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.29', // подставляет build.sh из @version
+    version: '1.11.30', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10338,6 +10340,18 @@ const Reports = {
             }
         },
         {
+            // ответ: show_url (страница) и th_url (превью); сама картинка — img*.pixhost.to/images/…
+            name: 'pixhost.to',
+            url: 'https://api.pixhost.to/images',
+            form: f => [['img', f], ['content_type', '0'], ['max_th_size', '420']],
+            parse: t => {
+                const j = JSON.parse(t);
+                const th = j && j.th_url;
+                if (th && /^https:\/\/t\d*\.pixhost\.to\/thumbs\//.test(th)) return th.replace(/^https:\/\/t(\d*)\./, 'https://img$1.').replace('/thumbs/', '/images/');
+                return (j && j.show_url) || null;
+            }
+        },
+        {
             name: 'catbox.moe',
             url: 'https://catbox.moe/user/api.php',
             form: f => [['reqtype', 'fileupload'], ['fileToUpload', f]],
@@ -10349,7 +10363,7 @@ const Reports = {
         if (file.size > 30 * 1024 * 1024) throw new Error('файл больше 30 МБ');
         // скриншот из буфера приходит без имени — даём своё
         const f = file.name && file.name !== 'image.png' ? file : new File([file], `screenshot-${Date.now()}.${(file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: file.type });
-        let last = null;
+        const errs = [];
         for (const h of this.UPLOAD) {
             try {
                 const url = await new Promise((res, rej) => {
@@ -10360,6 +10374,9 @@ const Reports = {
                         method: 'POST',
                         url: h.url,
                         data: fd,
+                        // без cookie и данных форума: часть хостингов на них отвечает отказом
+                        anonymous: true,
+                        headers: { Accept: 'application/json, text/plain, */*' },
                         timeout: 60000,
                         onload: r => {
                             let u = null;
@@ -10368,18 +10385,19 @@ const Reports = {
                             } catch {
                                 u = null;
                             }
-                            u ? res(u) : rej(new Error(`${h.name} ответил ${r.status}`));
+                            u ? res(u) : rej(new Error(`${h.name} — ${r.status || 'нет ответа'}${r.status >= 200 && r.status < 300 ? ' (непонятный ответ)' : ''}`));
                         },
-                        onerror: () => rej(new Error(`${h.name} недоступен`)),
-                        ontimeout: () => rej(new Error(`${h.name} долго не отвечает`))
+                        onerror: r => rej(new Error(`${h.name} — ${r && r.error ? String(r.error).slice(0, 60) : 'недоступен'}`)),
+                        ontimeout: () => rej(new Error(`${h.name} — долго не отвечает`))
                     });
                 });
                 return url;
             } catch (e) {
-                last = e;
+                errs.push(e.message);
+                console.warn('VERDICT загрузка фото:', e.message);
             }
         }
-        throw last || new Error('не удалось загрузить');
+        throw new Error(errs.join('; ') || 'не удалось загрузить');
     },
     // картинки из буфера обмена / перетаскивания
     imgFiles(dt) {
@@ -12823,6 +12841,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.30',
+        ['Загрузка фото в отчётах: добавлен хостинг pixhost.to; если не вышло — в сообщении видно, что ответил каждый хостинг']
     ],
     [
         '1.11.29',
