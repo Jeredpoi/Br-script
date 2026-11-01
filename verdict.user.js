@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.28
+// @version      1.11.29
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -33,6 +33,8 @@
 // @connect      fastpic.org
 // @connect      cloud-api.yandex.net
 // @connect      cloud.mail.ru
+// @connect      freeimage.host
+// @connect      catbox.moe
 // @connect      *
 // @run-at       document-start
 // @noframes
@@ -57,7 +59,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.28', // подставляет build.sh из @version
+    version: '1.11.29', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5267,6 +5269,11 @@ const UI_CSS = `
 .vd-ll-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .vd-ll-row.ok .vd-ll-prev { border-color: #2fbf71; }
 .vd-ll-row.bad .vd-ll-prev, .vd-ll-row.bad .inp { border-color: #e5484d; }
+.vd-ll-up { flex: none; width: 36px; height: 36px; }
+.vd-ll-row.drop .inp { border-color: var(--accent, #3aa0ff); background: rgba(58,160,255,.08); }
+.vd-ll-row.up .inp { opacity: .7; }
+.vd-ll-row.up .vd-ll-up { animation: vdpulse 1s ease-in-out infinite; }
+@keyframes vdpulse { 50% { opacity: .35; } }
 .vd-dop-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
 .vd-dop-sec { margin-top: 12px; }
 .vd-rep-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--tx-2); padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--line); margin-bottom: 12px; }
@@ -10319,6 +10326,68 @@ const Reports = {
         setTimeout(() => btn.click(), 300);
     },
     // список ссылок: поле на одну ссылку с превью справа; заполнил — снизу появляется следующее
+    // загрузка фото с компьютера на фотохостинг: файл уходит как есть, без сжатия; не вышло на первом — пробуем следующий
+    UPLOAD: [
+        {
+            name: 'freeimage.host',
+            url: 'https://freeimage.host/api/1/upload',
+            form: f => [['key', '6d207e02198a847aa98d0a2a901485a5'], ['action', 'upload'], ['format', 'json'], ['source', f]],
+            parse: t => {
+                const j = JSON.parse(t);
+                return j && j.image && (j.image.url || (j.image.image && j.image.image.url));
+            }
+        },
+        {
+            name: 'catbox.moe',
+            url: 'https://catbox.moe/user/api.php',
+            form: f => [['reqtype', 'fileupload'], ['fileToUpload', f]],
+            parse: t => (/^https:\/\/files\.catbox\.moe\/\S+$/.test(t.trim()) ? t.trim() : null)
+        }
+    ],
+    async upload(file) {
+        if (!file || !/^image\//.test(file.type)) throw new Error('это не картинка');
+        if (file.size > 30 * 1024 * 1024) throw new Error('файл больше 30 МБ');
+        // скриншот из буфера приходит без имени — даём своё
+        const f = file.name && file.name !== 'image.png' ? file : new File([file], `screenshot-${Date.now()}.${(file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: file.type });
+        let last = null;
+        for (const h of this.UPLOAD) {
+            try {
+                const url = await new Promise((res, rej) => {
+                    if (typeof GM_xmlhttpRequest !== 'function') return rej(new Error('нет доступа к сети'));
+                    const fd = new FormData();
+                    h.form(f).forEach(([k, v]) => fd.append(k, v));
+                    GM_xmlhttpRequest({
+                        method: 'POST',
+                        url: h.url,
+                        data: fd,
+                        timeout: 60000,
+                        onload: r => {
+                            let u = null;
+                            try {
+                                u = r.status >= 200 && r.status < 300 ? h.parse(String(r.responseText || '')) : null;
+                            } catch {
+                                u = null;
+                            }
+                            u ? res(u) : rej(new Error(`${h.name} ответил ${r.status}`));
+                        },
+                        onerror: () => rej(new Error(`${h.name} недоступен`)),
+                        ontimeout: () => rej(new Error(`${h.name} долго не отвечает`))
+                    });
+                });
+                return url;
+            } catch (e) {
+                last = e;
+            }
+        }
+        throw last || new Error('не удалось загрузить');
+    },
+    // картинки из буфера обмена / перетаскивания
+    imgFiles(dt) {
+        if (!dt) return [];
+        const out = [...(dt.files || [])].filter(f => /^image\//.test(f.type));
+        if (!out.length) for (const it of dt.items || []) if (it.kind === 'file' && /^image\//.test(it.type)) out.push(it.getAsFile());
+        return out.filter(Boolean);
+    },
     linkList(box, onChange, max = 30) {
         // проверка ссылки строки: результат применяется, только если в поле всё ещё та же ссылка
         const check = row => {
@@ -10351,19 +10420,80 @@ const Reports = {
             while (box.childElementCount > 1 && empty(box.lastElementChild) && empty(box.children[box.childElementCount - 2])) box.lastElementChild.remove();
             onChange();
         };
+        // файл → загрузка → ссылка в поле (как будто её вставили)
+        const put = async (row, file) => {
+            const inp = row.querySelector('input');
+            row.classList.add('up');
+            row.classList.remove('bad');
+            inp.value = '';
+            inp.placeholder = 'Загружаю фото…';
+            inp.disabled = true;
+            row._up = true;
+            try {
+                inp.value = await this.upload(file);
+            } catch (e) {
+                toast('Фото не загрузилось: ' + e.message, 'err');
+            } finally {
+                row._up = false;
+                row.classList.remove('up');
+                inp.disabled = false;
+                inp.placeholder = row === box.firstElementChild ? 'Ссылка на фото' : 'Ещё ссылка на фото';
+                inp.dispatchEvent(new Event('input'));
+            }
+        };
+        // несколько файлов — по свободным полям, новые поля добавляются сами
+        const putMany = async (row, files) => {
+            for (const [i, f] of files.entries()) {
+                let r = i ? [...box.children].find(x => empty(x) && !x._up) : row;
+                if (!r && box.childElementCount < max) (add(), (r = box.lastElementChild));
+                if (!r) return toast(`Сюда помещается не больше ${max} фото`, 'err');
+                await put(r, f);
+            }
+        };
         const add = () => {
-            const row = U.h(`<div class="vd-ll-row"><input class="inp" placeholder="${box.childElementCount ? 'Ещё ссылка на фото' : 'Ссылка на фото'}"><span class="vd-ll-prev"></span></div>`);
+            const row = U.h(`<div class="vd-ll-row"><input class="inp" placeholder="${box.childElementCount ? 'Ещё ссылка на фото' : 'Ссылка на фото'}"><button type="button" class="icon-btn vd-ll-up" title="Загрузить фото с компьютера (можно и Ctrl+V скриншота или перетащить файл)">${icon('upload', 15)}</button><input type="file" accept="image/*" multiple hidden><span class="vd-ll-prev"></span></div>`);
             const run = U.debounce(() => check(row).then(onChange), 250);
-            row.querySelector('input').oninput = () => {
+            const inp = row.querySelector('input.inp'),
+                fi = row.querySelector('input[type=file]');
+            inp.oninput = () => {
                 tidy();
                 run();
             };
+            // Ctrl+V скриншота (PrintScreen / «Ножницы») прямо в поле
+            inp.addEventListener('paste', e => {
+                const files = this.imgFiles(e.clipboardData);
+                if (!files.length) return;
+                e.preventDefault();
+                putMany(row, files);
+            });
+            row.querySelector('.vd-ll-up').onclick = () => fi.click();
+            fi.onchange = () => {
+                const files = [...fi.files];
+                fi.value = '';
+                if (files.length) putMany(row, files);
+            };
+            row.addEventListener('dragover', e => {
+                if (![...(e.dataTransfer.types || [])].includes('Files')) return;
+                e.preventDefault();
+                row.classList.add('drop');
+            });
+            row.addEventListener('dragleave', () => row.classList.remove('drop'));
+            row.addEventListener('drop', e => {
+                row.classList.remove('drop');
+                const files = this.imgFiles(e.dataTransfer);
+                if (!files.length) return;
+                e.preventDefault();
+                e.stopPropagation();
+                putMany(empty(row) ? row : [...box.children].find(x => empty(x) && !x._up) || row, files);
+            });
             box.appendChild(row);
         };
         add();
         return {
             // перед вставкой дожидаемся проверки всех ссылок (нажали «Отправить» сразу после вставки — ничего не теряется)
             values: async () => {
+                // фото ещё грузятся — ждём ссылку
+                while ([...box.children].some(r => r._up)) await new Promise(r => setTimeout(r, 200));
                 const rows = [...box.children];
                 await Promise.all(rows.map(check));
                 return rows.map(r => r.dataset.src || (r._u && r._u) || '').filter(Boolean);
@@ -12693,6 +12823,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.29',
+        ['Отчёты (Норма / Доп. репорт): скриншот можно не заливать в ВК — вставь его в поле через Ctrl+V, перетащи файл или нажми кнопку загрузки. Скрипт сам зальёт фото на фотохостинг (freeimage.host, запасной — catbox.moe) в исходном качестве и подставит ссылку']
     ],
     [
         '1.11.28',
