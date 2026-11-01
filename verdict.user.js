@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.27
+// @version      1.11.28
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -57,7 +57,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.27', // подставляет build.sh из @version
+    version: '1.11.28', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -11478,6 +11478,17 @@ const Lightbox = {
             if (this.IMG.test(u.pathname)) return u.href;
             if (this.VID_RE.test(u.pathname)) return this.VID + u.href;
         }
+        // ВК: в ссылке cs=640x0 — уменьшенная копия; берём самый большой размер из списка as=
+        if (/(^|\.)userapi\.com$|(^|\.)vkuserphoto\.ru$/.test(host)) {
+            const sizes = (u.searchParams.get('as') || '')
+                .split(',')
+                .map(x => x.match(/^(\d+)x(\d+)$/))
+                .filter(Boolean)
+                .sort((x, y) => x[1] * x[2] - y[1] * y[2]);
+            const big = sizes[sizes.length - 1];
+            // меняем только cs, остальной адрес как есть (ВК чувствителен к виду ссылки)
+            return big ? u.href.replace(/([?&]cs=)[^&#]*/, '$1' + big[1] + 'x' + big[2]) : u.href;
+        }
         // imgur .gifv — это mp4
         if (host === 'i.imgur.com' && /\.gifv$/i.test(u.pathname)) return this.VID + u.href.replace(/\.gifv(\?|$)/i, '.mp4$1');
         if (this.IMG.test(u.pathname)) return u.href;
@@ -12682,6 +12693,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.28',
+        ['Скриншоты из ВК в отчётах и в просмотре — в полном размере: раньше ссылка ВК с cs=640x0 давала уменьшенную копию']
     ],
     [
         '1.11.27',
