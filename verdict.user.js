@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.16
+// @version      1.11.17
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.16', // подставляет build.sh из @version
+    version: '1.11.17', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10122,15 +10122,22 @@ const Reports = {
     async loadBanners() {
         const me = Page.me();
         const c = Store.get('myBanners', null);
-        if (!me || (c && c.me === me && Date.now() - c.at < 864e5)) return;
-        const a = document.querySelector('.p-navgroup-link--user[href], a.p-navgroup-link--user');
-        if (!a) return;
+        if (!me || (c && c.me === me && c.list.length && Date.now() - c.at < 864e5)) return;
+        // ссылка в шапке ведёт на /account/ — профиль открываем по номеру пользователя из настроек форума
+        const parse = html => new DOMParser().parseFromString(html, 'text/html');
+        const get = async url => (await fetch(url, { credentials: 'include' })).text();
         try {
-            const html = await (await fetch(a.href, { credentials: 'include' })).text();
-            const doc = new DOMParser().parseFromString(html, 'text/html');
-            const list = [...doc.querySelectorAll('.memberHeader .userBanner, .memberHeader-banners .userBanner, .memberHeader-blurb .userBanner')].map(b =>
-                b.textContent.replace(/\s+/g, ' ').trim()
-            );
+            let url = '';
+            const id = W.XF && W.XF.config && W.XF.config.userId;
+            if (id) url = `/members/${id}/`;
+            else {
+                const acc = parse(await get('/account/'));
+                const a = [...acc.querySelectorAll('a[href*="/members/"]')].find(x => /\/members\/[^/]*\.?\d+\/?$/.test(x.getAttribute('href')));
+                if (a) url = a.getAttribute('href');
+            }
+            if (!url) return;
+            const doc = parse(await get(url));
+            const list = [...doc.querySelectorAll('.memberHeader .userBanner, .memberHeader-banners .userBanner, .memberProfileBanner, .userBanner')].map(b => b.textContent.replace(/\s+/g, ' ').trim());
             const clean = [...new Set(list.filter(x => x && !/^сервер/i.test(x)))];
             if (clean.length) Store.set('myBanners', { me, list: clean, at: Date.now() });
         } catch {
