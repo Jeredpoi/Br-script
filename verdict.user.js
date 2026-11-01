@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.10
+// @version      1.11.11
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.10', // подставляет build.sh из @version
+    version: '1.11.11', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -276,6 +276,7 @@ const DEFAULT_SETTINGS = {
     imgPreview: true, // ссылки на фото открываются в окне быстрого просмотра
     skipLeave: true, // без страницы «Пожалуйста, будьте осторожны» перед внешними ссылками
     qnav: { on: true, counts: true, place: 'top', items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
+    reports: { nick: '', level: '', position: '', normUrl: '', dopUrl: '' }, // норма и доп. репорт: что подставлять и куда отправлять
     stats: true, // анонимная отметка «скрипт запущен» раз в день, видна разработчику как число пользователей
     permCheck: true, // прятать панель в разделах, где нет прав модератора
     openOn: 'hover', // hover — списки открываются при наведении, click — только по нажатию
@@ -328,6 +329,9 @@ const Settings = {
             m.open = !!m.open;
             m.sticky = !!m.sticky;
         }
+        const rp = s.reports && typeof s.reports === 'object' ? s.reports : {};
+        s.reports = Object.fromEntries(Object.keys(DEFAULT_SETTINGS.reports).map(k => [k, typeof rp[k] === 'string' ? rp[k].slice(0, 300) : '']));
+        delete s.norm;
         const q = s.qnav;
         if (!q || typeof q !== 'object') s.qnav = { on: true, items: [], groups: [] };
         else {
@@ -5192,6 +5196,17 @@ const Scene = {
 // стили
 // UI в Shadow DOM, стили форума не мешают
 const UI_CSS = `
+.vd-norm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.vd-norm-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--tx-2); }
+.vd-dop-work { display: flex; flex-direction: column; gap: 6px; }
+.vd-dop-it { display: flex; gap: 8px; align-items: center; }
+.vd-dop-it .btn { min-width: 96px; }
+.vd-dop-it .inp { flex: 1; height: 34px; }
+.vd-norm-prev { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.vd-norm-prev img { width: 84px; height: 56px; object-fit: cover; border-radius: 7px; border: 1px solid var(--line); background: rgba(255,255,255,.04); }
+.vd-norm-prev img.bad { border-color: #e5484d; box-shadow: 0 0 0 1px #e5484d; }
+textarea.inp { width: 100%; resize: vertical; font: inherit; }
+
 :host { all: initial; }
 * { box-sizing: border-box; }
 :host, .v-root {
@@ -7690,6 +7705,21 @@ const QNav = {
                 track.appendChild(a);
             }
         });
+        // норма и доп. репорт (администрация до кураторов): переход в свой раздел и окно со ссылками на скриншоты
+        if (Reports.allowed())
+            Object.entries(REPORT_KINDS).forEach(([k, r]) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'vd-qn vd-qn-rep';
+                b.dataset.rep = k;
+                b.title = Settings.get().reports[r.url] ? `${r.name}: открыть раздел и заполнить отчёт` : `${r.name}: укажи раздел в настройках («Должность»)`;
+                b.textContent = r.name;
+                b.onclick = e => {
+                    e.stopPropagation();
+                    Reports.start(k);
+                };
+                track.appendChild(b);
+            });
         // в разделе форума, которого ещё нет в навигации, — предложить добавить
         const herePath = here && this.path(here.url);
         if (here && !items.some(i => this.path(i.url) === herePath)) {
@@ -8834,6 +8864,7 @@ const SettingsUI = {
         const roles = U.h('<div style="margin-bottom:22px"></div>');
         RoleForm.render(roles, () => this.draw());
         pane.appendChild(roles);
+        this.reportsCard(pane);
         const pk = this.card(pane, 'Разделы ответов');
         Packs.all().forEach(p =>
             pk.appendChild(
@@ -9508,6 +9539,28 @@ const SettingsUI = {
         BBPop.attach(ta);
     },
 
+    // норма и доп. репорт: только у администрации до кураторов
+    reportsCard(pane) {
+        if (!Reports.allowed()) return;
+        const r = Settings.get().reports;
+        const box = this.card(pane, 'Норма и доп. репорт');
+        const field = (k, title, sub, ph) => {
+            const inp = U.h(`<input class="inp" style="width:min(340px,100%)" placeholder="${U.esc(ph)}">`);
+            inp.value = r[k] || '';
+            inp.onchange = () => {
+                const v = inp.value.trim();
+                if (/Url$/.test(k) && v && !QNav.safe(v)) return toast('Нужна ссылка на раздел или тему этого форума', 'err');
+                Settings.patch(x => (x.reports[k] = v));
+            };
+            box.appendChild(this.row(title, sub, inp));
+        };
+        field('nick', 'Ник в игре', 'Подставляется в отчёт', 'Nick_Name');
+        field('level', 'Уровень админ-прав', 'Для доп. репорта', '1');
+        field('position', 'Полная должность', 'Как писать в отчёте', 'Модератор, следящий за агентами поддержки');
+        field('normUrl', 'Раздел нормы', 'Ссылка на раздел (новая тема) или тему (ответ)', 'https://forum.blackrussia.online/forums/…');
+        field('dopUrl', 'Раздел доп. репорта', 'Ссылка на раздел или тему', 'https://forum.blackrussia.online/forums/…');
+    },
+
     /* Статусы */
     tab_status(pane) {
         const s = Settings.get();
@@ -10024,6 +10077,213 @@ Object.assign(SettingsUI, {
         }
     }
 });
+
+// отчёты для администрации до кураторов: «Норма» и «Доп. репорт».
+// кнопка в быстрой навигации открывает свой раздел (новая тема) или тему (ответ), ник, уровень прав и должность
+// берутся из настроек («Должность» → «Норма и доп. репорт»), окно посередине просит только ссылки на скриншоты
+const REPORT_KINDS = {
+    norm: { name: 'Норма', url: 'normUrl', title: 'Норма | {nick} | {date}' },
+    dop: { name: 'Доп. репорт', url: 'dopUrl', title: 'Доп. репорт | {nick} | {date}' }
+};
+// проделанная работа в доп. репорте: кнопка → строка в пятом пункте (уточнение необязательное)
+const DOP_WORK = [
+    ['МП', 'время, напр. 18:00'],
+    ['Онлайн', 'сколько, напр. 3 ч'],
+    ['Реакция', 'на что / сколько']
+];
+const Reports = {
+    PENDING: 'reportPending',
+    cfg() {
+        return Settings.get().reports;
+    },
+    // кураторам и главной администрации отчёты не нужны
+    allowed() {
+        return !['ga', 'curator', ''].includes(Settings.get().role || '');
+    },
+    today() {
+        const d = new Date();
+        return [d.getDate(), d.getMonth() + 1].map(x => String(x).padStart(2, '0')).join('.') + '.' + d.getFullYear();
+    },
+    ruDate(iso) {
+        return iso ? iso.split('-').reverse().join('.') : '';
+    },
+    // раздел → страница создания темы, тема → сама тема (форма ответа внизу)
+    target(url) {
+        const u = new URL(url, location.origin);
+        if (/\/forums\/[^/]+\/?$/.test(u.pathname)) u.pathname = u.pathname.replace(/\/?$/, '/') + 'post-thread';
+        return u.href;
+    },
+    form() {
+        return document.querySelector('form[action$="/post-thread"], form[action*="/post-thread?"]') || Editor.forms()[0] || null;
+    },
+    start(kind) {
+        const c = this.cfg();
+        const url = c[REPORT_KINDS[kind].url];
+        if (!url || !c.nick) {
+            toast(`Укажи ${!url ? 'раздел для отчёта' : 'свой ник'} в настройках: «Должность» → «Норма и доп. репорт»`, 'err');
+            return SettingsUI.open('role');
+        }
+        const href = this.target(url);
+        // уже на странице с формой отчёта — сразу окно
+        if (location.href.split('#')[0] === href && this.form()) return this.dialog(kind, this.form());
+        Store.set(this.PENDING, { kind, at: Date.now() });
+        location.href = href;
+    },
+    // пришли по кнопке: ждём форму и открываем окно
+    boot() {
+        const p = Store.get(this.PENDING, null);
+        if (!p || !REPORT_KINDS[p.kind] || Date.now() - p.at > 10 * 60e3) return;
+        let n = 0;
+        const tick = () => {
+            const f = this.form();
+            if (f && (f.querySelector('.fr-element') || f.querySelector('textarea'))) {
+                Store.set(this.PENDING, null);
+                return this.dialog(p.kind, f);
+            }
+            if (++n < 40) setTimeout(tick, 250);
+            else Store.set(this.PENDING, null);
+        };
+        tick();
+    },
+    // страница imgur → прямая ссылка на картинку
+    direct(u) {
+        const im = u.match(/^https?:\/\/(?:www\.)?imgur\.com\/([A-Za-z0-9]{5,10})$/);
+        return im ? `https://i.imgur.com/${im[1]}.png` : u;
+    },
+    links(text) {
+        return String(text || '')
+            .split(/[\s,]+/)
+            .filter(x => /^https?:\/\/\S+$/i.test(x))
+            .map(x => this.direct(x));
+    },
+    img(list) {
+        return list.length ? '\n' + list.map(u => `[IMG]${u}[/IMG]`).join('\n') : '';
+    },
+    build(kind, v) {
+        const c = this.cfg();
+        const lines =
+            kind === 'norm'
+                ? [
+                      ['Nick_Name', c.nick],
+                      ['Занимаемая должность', c.position],
+                      ['Скриншот /astats', this.img(v.astats)],
+                      ['Доказательства проделанной работы за день', this.img(v.proofs)],
+                      ['Дата', v.date]
+                  ]
+                : [
+                      ['Никнейм', c.nick],
+                      ['Уровень прав', c.level],
+                      ['Должность', c.position],
+                      ['За какой день подаётся отчёт', v.date],
+                      ['Какая работа была проделана', v.work],
+                      ['Скриншоты проделанной работы', this.img(v.proofs)]
+                  ];
+        return lines.map(([label, val], i) => `${i + 1}. ${label}: ${val || ''}`).join('\n');
+    },
+    fill(kind, form, v, send) {
+        Editor.insert(form, this.build(kind, v), { replace: true });
+        const title = form.querySelector('input[name="title"]');
+        if (title && !title.value.trim()) {
+            title.value = REPORT_KINDS[kind].title.replace('{nick}', this.cfg().nick).replace('{date}', v.date);
+            title.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        if (!send) return toast(`${REPORT_KINDS[kind].name}: вставлено — проверь и отправь`);
+        const btn = form.querySelector('.formSubmitRow button[type="submit"], button[type="submit"].button--primary, button[type="submit"], button.button--primary:not([type="button"]), input[type="submit"]');
+        if (!btn) return toast('Не нашёл кнопку отправки — отправь вручную', 'err');
+        setTimeout(() => btn.click(), 300);
+    },
+    dialog(kind, form) {
+        const c = this.cfg();
+        const isNorm = kind === 'norm';
+        const iso = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+        const linkBox = (k, title, ph, rows) =>
+            `<div class="sec"><h4>${title}</h4><textarea class="inp" data-k="${k}" rows="${rows}" style="height:${rows > 1 ? 84 : 46}px;min-height:46px" placeholder="${ph}"></textarea><div class="vd-norm-prev" data-p="${k}"></div></div>`;
+        const scrim = Layer.add(
+            U.h(`<div class="scrim"><div class="modal sm" style="width:min(620px,100%)">
+            <div class="m-head"><span class="vic" style="--c:var(--acc);width:34px;height:34px;border-radius:10px">${icon('check', 16)}</span>
+              <div><div class="m-title">${REPORT_KINDS[kind].name}</div><div class="m-sub">${U.esc(c.nick)}${c.level && !isNorm ? ' · ' + U.esc(c.level) + ' ур.' : ''}${c.position ? ' · ' + U.esc(c.position) : ''}</div></div>
+              <span style="flex:1"></span><button class="icon-btn" data-a="x">${icon('x')}</button></div>
+            <div class="pane">
+              ${
+                  isNorm
+                      ? linkBox('astats', 'Скриншот /astats', 'Ссылка на фото', 1) + linkBox('proofs', 'Доказательства проделанной работы', 'Ссылки на фото, по одной в строке', 3)
+                      : `<div class="vd-norm-grid"><label>За какой день<input class="inp" type="date" data-k="day" value="${iso}" max="${iso}"></label></div>
+                 <div class="sec"><h4>Какая работа была проделана</h4><div class="vd-dop-work">${DOP_WORK.map(
+                     ([n, ph], i) => `<div class="vd-dop-it" data-i="${i}"><button type="button" class="btn">${n}</button><input class="inp" placeholder="${ph}" hidden></div>`
+                 ).join('')}</div></div>` + linkBox('proofs', 'Скриншот проделанной работы', 'Ссылка на фото', 1)
+              }
+              <div class="muted" data-a="warn" style="font-size:12px;min-height:16px"></div>
+              <div class="btns" style="margin-top:10px"><span style="flex:1"></span>
+                <button class="btn" data-a="ins">${icon('pen', 14)}Вставить</button>
+                <button class="btn pri" data-a="send">${icon('check', 14)}Вставить и отправить</button>
+              </div>
+            </div></div></div>`)
+        );
+        const $ = s => scrim.querySelector(s);
+        const close = () => scrim.remove();
+        $('[data-a="x"]').onclick = close;
+        scrim.addEventListener('mousedown', e => e.target === scrim && close());
+        // работа в доп. репорте: нажал — выбрано, появляется поле уточнения
+        scrim.querySelectorAll('.vd-dop-it').forEach(it => {
+            const b = it.querySelector('button'),
+                inp = it.querySelector('input');
+            b.onclick = () => {
+                const on = !b.classList.contains('pri');
+                b.classList.toggle('pri', on);
+                inp.hidden = !on;
+                if (on) inp.focus();
+            };
+        });
+        // превью ссылок: не картинка — красная рамка и предупреждение
+        const bad = new Set();
+        const warn = () => ($('[data-a="warn"]').textContent = bad.size ? `Не открывается как картинка: ${bad.size} — нужна прямая ссылка на фото (обычно оканчивается на .png / .jpg)` : '');
+        scrim.querySelectorAll('textarea[data-k]').forEach(ta => {
+            ta.oninput = U.debounce(() => {
+                const box = $(`[data-p="${ta.dataset.k}"]`);
+                box.querySelectorAll('img').forEach(im => bad.delete(im.title));
+                box.innerHTML = '';
+                this.links(ta.value).forEach(u => {
+                    const im = document.createElement('img');
+                    im.referrerPolicy = 'no-referrer';
+                    im.title = u;
+                    im.onload = () => (bad.delete(u), im.classList.remove('bad'), warn());
+                    im.onerror = () => (bad.add(u), im.classList.add('bad'), warn());
+                    im.src = u;
+                    box.appendChild(im);
+                });
+                warn();
+            }, 300);
+        });
+        const val = k => ($(`[data-k="${k}"]`) || {}).value;
+        const go = send => {
+            const v = { proofs: this.links(val('proofs')), astats: this.links(val('astats')) };
+            if (isNorm) {
+                v.date = this.today();
+                if (!v.astats.length && !v.proofs.length) return toast('Вставь ссылку на скриншот', 'err');
+            } else {
+                v.date = this.ruDate(val('day')) || this.today();
+                v.work = [...scrim.querySelectorAll('.vd-dop-it')]
+                    .filter(it => it.querySelector('button').classList.contains('pri'))
+                    .map(it => {
+                        const d = it.querySelector('input').value.trim();
+                        return DOP_WORK[+it.dataset.i][0] + (d ? ` (${d})` : '');
+                    })
+                    .join(', ');
+                if (!v.work) return toast('Отметь, какая работа была проделана', 'err');
+                if (!v.proofs.length) return toast('Вставь ссылку на скриншот', 'err');
+            }
+            if (send && bad.size && !confirm('Часть ссылок не открывается как картинка. Всё равно отправить?')) return;
+            close();
+            this.fill(kind, form, v, send);
+        };
+        $('[data-a="ins"]').onclick = () => go(false);
+        $('[data-a="send"]').onclick = () => go(true);
+        setTimeout(() => {
+            const f = scrim.querySelector(isNorm ? 'textarea' : '.vd-dop-it button');
+            if (f) f.focus();
+        }, 50);
+    }
+};
 
 // связь с разработчиком
 // обращения уходят на почту разработчика (BRAND.dev.mail), ответы приходят туда же
@@ -12031,6 +12291,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.11',
+        ['Норма и доп. репорт (для администрации до кураторов): кнопки в быстрой навигации открывают твой раздел, ник, уровень прав и должность подставляются сами, в доп. репорте работа выбирается кнопками (МП, онлайн, реакция), а ссылки на скриншоты вставляются картинками. Настраивается во вкладке «Должность»']
+    ],
+    [
         '1.11.10',
         ['В «О скрипте» указан разработчик']
     ],
@@ -12768,6 +13032,8 @@ function boot() {
         safe(() => Logo.apply());
         safe(() => QNav.mount());
         Bus.on('settings', () => safe(() => QNav.mount()));
+        // пришли по кнопке «Норма» / «Доп. репорт» — открыть окно на форме отчёта
+        safe(() => Reports.boot());
         safe(() => Stuck.start());
         // не срочное — когда браузер свободен, чтобы страница стала отзывчивой быстрее
         const idle = window.requestIdleCallback || (f => setTimeout(f, 200));
