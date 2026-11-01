@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.13
+// @version      1.11.14
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.13', // подставляет build.sh из @version
+    version: '1.11.14', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9549,7 +9549,11 @@ const SettingsUI = {
             inp.value = r[k] || '';
             inp.onchange = () => {
                 const v = inp.value.trim();
-                if (/Url$/.test(k) && v && !QNav.safe(v)) return toast('Нужна ссылка на раздел или тему этого форума', 'err');
+                if (/Url$/.test(k) && v && (!QNav.safe(v) || !Reports.parse(v))) {
+                    inp.style.borderColor = '#e5484d';
+                    return toast('Нужна ссылка на тему или раздел этого форума с номером: …/threads/название.123456/ или …/forums/раздел.77/ — скопируй её из адресной строки', 'err');
+                }
+                inp.style.borderColor = '';
                 Settings.patch(x => (x.reports[k] = v));
             };
             box.appendChild(this.row(title, sub, inp));
@@ -10120,17 +10124,23 @@ const Reports = {
     ruDate(iso) {
         return iso ? iso.split('-').reverse().join('.') : '';
     },
-    // раздел → страница создания темы, тема → сама тема (форма ответа внизу).
-    // из ссылки на страницу темы, сообщение (#post-…, /post-…, /page-2) или с параметрами берём саму тему / раздел
+    // номер темы или раздела из ссылки: «/threads/название.123456/…», «/threads/123456/», «/forums/раздел.77/»
+    // (название может быть обрезано при копировании — по нему не открываем)
+    parse(url) {
+        let u;
+        try {
+            u = new URL(String(url || '').trim(), location.origin);
+        } catch {
+            return null;
+        }
+        const m = u.pathname.match(/\/(threads|forums)\/(?:[^/]*\.)?(\d+)(?:\/|$)/);
+        return m ? { type: m[1], id: m[2], origin: u.origin } : null;
+    },
+    // раздел → страница создания темы, тема → сама тема (форма ответа внизу)
     target(url) {
-        const u = new URL(String(url).trim(), location.origin);
-        u.hash = '';
-        u.search = '';
-        const th = u.pathname.match(/^(.*?\/threads\/[^/]+)/);
-        const fo = u.pathname.match(/^(.*?\/forums\/[^/]+)/);
-        if (th) u.pathname = th[1] + '/';
-        else if (fo) u.pathname = fo[1] + '/post-thread';
-        return u.href;
+        const p = this.parse(url);
+        if (!p) return '';
+        return p.type === 'threads' ? `${p.origin}/threads/${p.id}/` : `${p.origin}/forums/${p.id}/post-thread`;
     },
     form() {
         return document.querySelector('form[action$="/post-thread"], form[action*="/post-thread?"]') || Editor.forms()[0] || null;
@@ -10143,8 +10153,15 @@ const Reports = {
             return SettingsUI.open('role');
         }
         const href = this.target(url);
+        if (!href) {
+            toast('В ссылке на раздел нет номера (…/threads/название.123456/) — вставь ссылку заново из адресной строки', 'err');
+            return SettingsUI.open('role');
+        }
         // уже на странице с формой отчёта — сразу окно
-        if (location.href.split('#')[0] === href && this.form()) return this.dialog(kind, this.form());
+        const want = this.parse(url),
+            here = this.parse(location.href);
+        const same = here && here.type === want.type && here.id === want.id && (want.type === 'threads' || /\/post-thread/.test(location.pathname));
+        if (same && this.form()) return this.dialog(kind, this.form());
         Store.set(this.PENDING, { kind, at: Date.now() });
         location.href = href;
     },
@@ -12313,6 +12330,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.14',
+        ['Норма и доп. репорт: тема открывается по номеру (длинные русские названия в ссылке больше не ломают переход, ошибка 400); ссылку без номера настройки не принимают и подсказывают, какую нужно']
+    ],
     [
         '1.11.13',
         ['Норма и доп. репорт: ссылку на раздел или тему можно вставить любую (на страницу, сообщение, с параметрами) — скрипт сам открывает нужную страницу; если формы для отчёта нет, говорит об этом']
