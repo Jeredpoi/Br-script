@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.17
+// @version      1.11.18
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.17', // подставляет build.sh из @version
+    version: '1.11.18', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10137,7 +10137,8 @@ const Reports = {
             }
             if (!url) return;
             const doc = parse(await get(url));
-            const list = [...doc.querySelectorAll('.memberHeader .userBanner, .memberHeader-banners .userBanner, .memberProfileBanner, .userBanner')].map(b => b.textContent.replace(/\s+/g, ' ').trim());
+            // плашки в шапке профиля: .memberHeader-banners .userBanner (без «Сервер …»)
+            const list = [...doc.querySelectorAll('.memberHeader-banners .userBanner, .memberHeader .userBanner')].map(b => b.textContent.replace(/\s+/g, ' ').trim());
             const clean = [...new Set(list.filter(x => x && !/^сервер/i.test(x)))];
             if (clean.length) Store.set('myBanners', { me, list: clean, at: Date.now() });
         } catch {
