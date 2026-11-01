@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.14
+// @version      1.11.15
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.14', // подставляет build.sh из @version
+    version: '1.11.15', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -276,7 +276,7 @@ const DEFAULT_SETTINGS = {
     imgPreview: true, // ссылки на фото открываются в окне быстрого просмотра
     skipLeave: true, // без страницы «Пожалуйста, будьте осторожны» перед внешними ссылками
     qnav: { on: true, counts: true, place: 'top', items: [], groups: [] }, // быстрая навигация в шапке: { id, name, url, group }
-    reports: { nick: '', level: '', position: '', normUrl: '', dopUrl: '' }, // норма и доп. репорт: что подставлять и куда отправлять
+    reports: { nick: '', level: '', position: '' }, // норма и доп. репорт: что подставлять в отчёт
     stats: true, // анонимная отметка «скрипт запущен» раз в день, видна разработчику как число пользователей
     permCheck: true, // прятать панель в разделах, где нет прав модератора
     openOn: 'hover', // hover — списки открываются при наведении, click — только по нажатию
@@ -5198,6 +5198,9 @@ const Scene = {
 const UI_CSS = `
 .vd-norm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .vd-norm-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--tx-2); }
+.vd-rep-tabs button { padding: 0 14px; }
+.vd-rep-me { margin-bottom: 12px; font-size: 12.5px; color: var(--tx-2); }
+.vd-rep-me summary { cursor: pointer; }
 .vd-dop-work { display: flex; flex-direction: column; gap: 6px; }
 .vd-dop-it { display: flex; gap: 8px; align-items: center; }
 .vd-dop-it .btn { min-width: 96px; }
@@ -6502,6 +6505,7 @@ class ReplyBar {
               ${freq ? `<button class="chip ghost" data-g="freq" style="--c:var(--acc)"><span class="vic" style="--c:var(--acc)">${icon('star', 13)}</span>Частые</button>` : ''}
               </div>
               <span class="tools">
+                ${Reports.allowed() ? `<button class="chip ghost vd-rep-btn" data-a="report" style="--c:#2fbf71" title="Норма и доп. репорт: вставить отчёт в это поле"><span class="vic" style="--c:#2fbf71">${icon('check', 13)}</span>Норма / Доп. репорт</button>` : ''}
                 <button class="icon-btn acc" data-a="idea" title="Предложить идею разработчику">${icon('bulb')}</button>
                 <button class="icon-btn" data-a="search" title="Поиск ответа (Ctrl+K)">${icon('search')}</button>
                 <button class="icon-btn" data-a="settings" title="Настройки VERDICT (Alt+V)">${icon('gear')}</button>
@@ -6573,6 +6577,7 @@ class ReplyBar {
         on('search', () => Palette.open(this));
         on('settings', () => SettingsUI.open());
         on('idea', () => SettingsUI.open('contact'));
+        on('report', () => Reports.open(this.form));
     }
     renderHints() {
         const row = this.root.querySelector('.hints-row');
@@ -7705,21 +7710,6 @@ const QNav = {
                 track.appendChild(a);
             }
         });
-        // норма и доп. репорт (администрация до кураторов): переход в свой раздел и окно со ссылками на скриншоты
-        if (Reports.allowed())
-            Object.entries(REPORT_KINDS).forEach(([k, r]) => {
-                const b = document.createElement('button');
-                b.type = 'button';
-                b.className = 'vd-qn vd-qn-rep';
-                b.dataset.rep = k;
-                b.title = Settings.get().reports[r.url] ? `${r.name}: открыть раздел и заполнить отчёт` : `${r.name}: укажи раздел в настройках («Должность»)`;
-                b.textContent = r.name;
-                b.onclick = e => {
-                    e.stopPropagation();
-                    Reports.start(k);
-                };
-                track.appendChild(b);
-            });
         // в разделе форума, которого ещё нет в навигации, — предложить добавить
         const herePath = here && this.path(here.url);
         if (here && !items.some(i => this.path(i.url) === herePath)) {
@@ -9549,11 +9539,6 @@ const SettingsUI = {
             inp.value = r[k] || '';
             inp.onchange = () => {
                 const v = inp.value.trim();
-                if (/Url$/.test(k) && v && (!QNav.safe(v) || !Reports.parse(v))) {
-                    inp.style.borderColor = '#e5484d';
-                    return toast('Нужна ссылка на тему или раздел этого форума с номером: …/threads/название.123456/ или …/forums/раздел.77/ — скопируй её из адресной строки', 'err');
-                }
-                inp.style.borderColor = '';
                 Settings.patch(x => (x.reports[k] = v));
             };
             box.appendChild(this.row(title, sub, inp));
@@ -9566,8 +9551,6 @@ const SettingsUI = {
         );
         box.appendChild(this.row('Уровень админ-прав', 'Для доп. репорта: в отчёт пишется число', lv));
         field('position', 'Полная должность', 'Как писать в отчёте', 'Модератор, следящий за агентами поддержки');
-        field('normUrl', 'Раздел нормы', 'Ссылка на раздел (новая тема) или тему (ответ)', 'https://forum.blackrussia.online/forums/…');
-        field('dopUrl', 'Раздел доп. репорта', 'Ссылка на раздел или тему', 'https://forum.blackrussia.online/forums/…');
     },
 
     /* Статусы */
@@ -10088,11 +10071,11 @@ Object.assign(SettingsUI, {
 });
 
 // отчёты для администрации до кураторов: «Норма» и «Доп. репорт».
-// кнопка в быстрой навигации открывает свой раздел (новая тема) или тему (ответ), ник, уровень прав и должность
-// берутся из настроек («Должность» → «Норма и доп. репорт»), окно посередине просит только ссылки на скриншоты
+// кнопка в панели над полем ввода открывает окно с двумя вкладками; ник, уровень прав и должность берутся
+// из настроек (их можно один раз заполнить прямо в окне), остаётся вставить ссылки на скриншоты
 const REPORT_KINDS = {
-    norm: { name: 'Норма', url: 'normUrl', title: 'Норма | {nick} | {date}' },
-    dop: { name: 'Доп. репорт', url: 'dopUrl', title: 'Доп. репорт | {nick} | {date}' }
+    norm: { name: 'Норма' },
+    dop: { name: 'Доп. репорт' }
 };
 // проделанная работа в доп. репорте: кнопка → строка в пятом пункте (уточнение необязательное)
 const DOP_WORK = [
@@ -10100,12 +10083,15 @@ const DOP_WORK = [
     ['Онлайн', 'сколько, напр. 3 ч'],
     ['Реакция', 'на что / сколько']
 ];
-// уровни админ-прав (в отчёте пишется число)
+// уровни админ-прав (в отчёт пишется число)
 const ADMIN_LEVELS = { 1: 'Младший модератор', 2: 'Модератор', 3: 'Старший модератор', 4: 'Администратор', 5: 'Старший администратор' };
 const Reports = {
-    PENDING: 'reportPending',
     cfg() {
         return Settings.get().reports;
+    },
+    // кураторам и главной администрации отчёты не нужны
+    allowed() {
+        return !['ga', 'curator', ''].includes(Settings.get().role || '');
     },
     // уровень: выбранный в настройках, иначе по должности в скрипте
     level() {
@@ -10113,77 +10099,12 @@ const Reports = {
         if (ADMIN_LEVELS[l]) return l;
         return { jmod: '1', admin: '4' }[Settings.get().role] || '';
     },
-    // кураторам и главной администрации отчёты не нужны
-    allowed() {
-        return !['ga', 'curator', ''].includes(Settings.get().role || '');
-    },
     today() {
         const d = new Date();
         return [d.getDate(), d.getMonth() + 1].map(x => String(x).padStart(2, '0')).join('.') + '.' + d.getFullYear();
     },
     ruDate(iso) {
         return iso ? iso.split('-').reverse().join('.') : '';
-    },
-    // номер темы или раздела из ссылки: «/threads/название.123456/…», «/threads/123456/», «/forums/раздел.77/»
-    // (название может быть обрезано при копировании — по нему не открываем)
-    parse(url) {
-        let u;
-        try {
-            u = new URL(String(url || '').trim(), location.origin);
-        } catch {
-            return null;
-        }
-        const m = u.pathname.match(/\/(threads|forums)\/(?:[^/]*\.)?(\d+)(?:\/|$)/);
-        return m ? { type: m[1], id: m[2], origin: u.origin } : null;
-    },
-    // раздел → страница создания темы, тема → сама тема (форма ответа внизу)
-    target(url) {
-        const p = this.parse(url);
-        if (!p) return '';
-        return p.type === 'threads' ? `${p.origin}/threads/${p.id}/` : `${p.origin}/forums/${p.id}/post-thread`;
-    },
-    form() {
-        return document.querySelector('form[action$="/post-thread"], form[action*="/post-thread?"]') || Editor.forms()[0] || null;
-    },
-    start(kind) {
-        const c = this.cfg();
-        const url = c[REPORT_KINDS[kind].url];
-        if (!url || !c.nick) {
-            toast(`Укажи ${!url ? 'раздел для отчёта' : 'свой ник'} в настройках: «Должность» → «Норма и доп. репорт»`, 'err');
-            return SettingsUI.open('role');
-        }
-        const href = this.target(url);
-        if (!href) {
-            toast('В ссылке на раздел нет номера (…/threads/название.123456/) — вставь ссылку заново из адресной строки', 'err');
-            return SettingsUI.open('role');
-        }
-        // уже на странице с формой отчёта — сразу окно
-        const want = this.parse(url),
-            here = this.parse(location.href);
-        const same = here && here.type === want.type && here.id === want.id && (want.type === 'threads' || /\/post-thread/.test(location.pathname));
-        if (same && this.form()) return this.dialog(kind, this.form());
-        Store.set(this.PENDING, { kind, at: Date.now() });
-        location.href = href;
-    },
-    // пришли по кнопке: ждём форму и открываем окно
-    boot() {
-        const p = Store.get(this.PENDING, null);
-        if (!p || !REPORT_KINDS[p.kind] || Date.now() - p.at > 10 * 60e3) return;
-        let n = 0;
-        const tick = () => {
-            const f = this.form();
-            if (f && (f.querySelector('.fr-element') || f.querySelector('textarea'))) {
-                Store.set(this.PENDING, null);
-                return this.dialog(p.kind, f);
-            }
-            if (++n < 40) setTimeout(tick, 250);
-            else {
-                Store.set(this.PENDING, null);
-                // страница без формы: ссылка не та, тема закрыта или нет прав писать
-                toast(`${REPORT_KINDS[p.kind].name}: на этой странице нет формы для отчёта — проверь ссылку в настройках («Должность»)`, 'err');
-            }
-        };
-        tick();
     },
     // страница imgur → прямая ссылка на картинку
     direct(u) {
@@ -10220,38 +10141,48 @@ const Reports = {
                   ];
         return lines.map(([label, val], i) => `${i + 1}. ${label}: ${val || ''}`).join('\n');
     },
+    // вставка в поле, где нажали кнопку; страница прокручивается к нему
     fill(kind, form, v, send) {
         Editor.insert(form, this.build(kind, v), { replace: true });
-        const title = form.querySelector('input[name="title"]');
-        if (title && !title.value.trim()) {
-            title.value = REPORT_KINDS[kind].title.replace('{nick}', this.cfg().nick).replace('{date}', v.date);
-            title.dispatchEvent(new Event('input', { bubbles: true }));
-        }
+        const box = form.querySelector('.fr-box') || Editor.parts(form).ta || form;
+        box.scrollIntoView({ behavior: 'smooth', block: 'center' });
         if (!send) return toast(`${REPORT_KINDS[kind].name}: вставлено — проверь и отправь`);
         const btn = form.querySelector('.formSubmitRow button[type="submit"], button[type="submit"].button--primary, button[type="submit"], button.button--primary:not([type="button"]), input[type="submit"]');
         if (!btn) return toast('Не нашёл кнопку отправки — отправь вручную', 'err');
         setTimeout(() => btn.click(), 300);
     },
-    dialog(kind, form) {
+    // окно: слева сверху вкладки «Норма» / «Доп. репорт», свои данные (один раз) и ссылки на скриншоты
+    open(form, kind) {
+        kind = REPORT_KINDS[kind] ? kind : Store.get('reportTab', 'norm');
         const c = this.cfg();
-        const isNorm = kind === 'norm';
         const iso = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
-        const linkBox = (k, title, ph, rows) =>
-            `<div class="sec"><h4>${title}</h4><textarea class="inp" data-k="${k}" rows="${rows}" style="height:${rows > 1 ? 84 : 46}px;min-height:46px" placeholder="${ph}"></textarea><div class="vd-norm-prev" data-p="${k}"></div></div>`;
+        const linkBox = (k, title, ph, h) =>
+            `<div class="sec"><h4>${title}</h4><textarea class="inp" data-k="${k}" style="height:${h}px;min-height:46px" placeholder="${ph}"></textarea><div class="vd-norm-prev" data-p="${k}"></div></div>`;
+        const need = !c.nick || !c.position;
         const scrim = Layer.add(
             U.h(`<div class="scrim"><div class="modal sm" style="width:min(620px,100%)">
-            <div class="m-head"><span class="vic" style="--c:var(--acc);width:34px;height:34px;border-radius:10px">${icon('check', 16)}</span>
-              <div><div class="m-title">${REPORT_KINDS[kind].name}</div><div class="m-sub">${U.esc(c.nick)}${this.level() && !isNorm ? ' · ' + U.esc(ADMIN_LEVELS[this.level()]) + ' (' + this.level() + ')' : ''}${c.position ? ' · ' + U.esc(c.position) : ''}</div></div>
+            <div class="m-head">
+              <div class="seg vd-rep-tabs">${Object.entries(REPORT_KINDS)
+                  .map(([k, r]) => `<button type="button" data-t="${k}">${r.name}</button>`)
+                  .join('')}</div>
               <span style="flex:1"></span><button class="icon-btn" data-a="x">${icon('x')}</button></div>
             <div class="pane">
-              ${
-                  isNorm
-                      ? linkBox('astats', 'Скриншот /astats', 'Ссылка на фото', 1) + linkBox('proofs', 'Доказательства проделанной работы', 'Ссылки на фото, по одной в строке', 3)
-                      : `<div class="vd-norm-grid"><label>За какой день<input class="inp" type="date" data-k="day" value="${iso}" max="${iso}"></label></div>
-                 <div class="sec"><h4>Какая работа была проделана</h4><div class="vd-dop-work">${DOP_WORK.map(
-                     ([n, ph], i) => `<div class="vd-dop-it" data-i="${i}"><button type="button" class="btn">${n}</button><input class="inp" placeholder="${ph}" hidden></div>`
-                 ).join('')}</div></div>` + linkBox('proofs', 'Скриншот проделанной работы', 'Ссылка на фото', 1)
-              }
+              <details class="vd-rep-me" ${need ? 'open' : ''}><summary>${need ? 'Заполни один раз: ник и должность' : `${U.esc(c.nick)} · ${U.esc(c.position)}`}</summary>
+                <div class="vd-norm-grid" style="margin-top:8px">
+                  <label>Ник<input class="inp" data-m="nick" value="${U.esc(c.nick)}" placeholder="Nick_Name"></label>
+                  <label>Уровень прав<select class="inp" data-m="level"><option value="">по должности</option>${Object.entries(ADMIN_LEVELS)
+                      .map(([k, v]) => `<option value="${k}" ${k === c.level ? 'selected' : ''}>${k} — ${v}</option>`)
+                      .join('')}</select></label>
+                  <label style="grid-column:1/-1">Полная должность<input class="inp" data-m="position" value="${U.esc(c.position)}" placeholder="Модератор, следящий за агентами поддержки"></label>
+                </div></details>
+              <div data-body="norm">${linkBox('astats', 'Скриншот /astats', 'Ссылка на фото', 46)}${linkBox('proofs', 'Доказательства проделанной работы', 'Ссылки на фото, по одной в строке', 84)}</div>
+              <div data-body="dop">
+                <div class="vd-norm-grid"><label>За какой день<input class="inp" type="date" data-k="day" value="${iso}" max="${iso}"></label></div>
+                <div class="sec"><h4>Какая работа была проделана</h4><div class="vd-dop-work">${DOP_WORK.map(
+                    ([n, ph], i) => `<div class="vd-dop-it" data-i="${i}"><button type="button" class="btn">${n}</button><input class="inp" placeholder="${ph}" hidden></div>`
+                ).join('')}</div></div>
+                ${linkBox('dproofs', 'Скриншот проделанной работы', 'Ссылка на фото', 46)}
+              </div>
               <div class="muted" data-a="warn" style="font-size:12px;min-height:16px"></div>
               <div class="btns" style="margin-top:10px"><span style="flex:1"></span>
                 <button class="btn" data-a="ins">${icon('pen', 14)}Вставить</button>
@@ -10263,6 +10194,19 @@ const Reports = {
         const close = () => scrim.remove();
         $('[data-a="x"]').onclick = close;
         scrim.addEventListener('mousedown', e => e.target === scrim && close());
+        // вкладки
+        const show = k => {
+            kind = k;
+            Store.set('reportTab', k);
+            scrim.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === k));
+            scrim.querySelectorAll('[data-body]').forEach(b => (b.hidden = b.dataset.body !== k));
+        };
+        scrim.querySelectorAll('[data-t]').forEach(b => (b.onclick = () => show(b.dataset.t)));
+        show(kind);
+        // свои данные: сохраняются сразу
+        scrim.querySelectorAll('[data-m]').forEach(el => {
+            el.onchange = () => Settings.patch(x => (x.reports[el.dataset.m] = el.value.trim()));
+        });
         // работа в доп. репорте: нажал — выбрано, появляется поле уточнения
         scrim.querySelectorAll('.vd-dop-it').forEach(it => {
             const b = it.querySelector('button'),
@@ -10296,11 +10240,20 @@ const Reports = {
         });
         const val = k => ($(`[data-k="${k}"]`) || {}).value;
         const go = send => {
-            const v = { proofs: this.links(val('proofs')), astats: this.links(val('astats')) };
-            if (isNorm) {
+            scrim.querySelectorAll('[data-m]').forEach(el => el.onchange());
+            const cur = this.cfg();
+            if (!cur.nick) {
+                $('.vd-rep-me').open = true;
+                return $('[data-m="nick"]').focus();
+            }
+            const v = {};
+            if (kind === 'norm') {
+                v.astats = this.links(val('astats'));
+                v.proofs = this.links(val('proofs'));
                 v.date = this.today();
                 if (!v.astats.length && !v.proofs.length) return toast('Вставь ссылку на скриншот', 'err');
             } else {
+                v.proofs = this.links(val('dproofs'));
                 v.date = this.ruDate(val('day')) || this.today();
                 v.work = [...scrim.querySelectorAll('.vd-dop-it')]
                     .filter(it => it.querySelector('button').classList.contains('pri'))
@@ -10319,7 +10272,7 @@ const Reports = {
         $('[data-a="ins"]').onclick = () => go(false);
         $('[data-a="send"]').onclick = () => go(true);
         setTimeout(() => {
-            const f = scrim.querySelector(isNorm ? 'textarea' : '.vd-dop-it button');
+            const f = need ? $('[data-m="nick"]') : $(`[data-body="${kind}"] textarea, [data-body="${kind}"] .vd-dop-it button`);
             if (f) f.focus();
         }, 50);
     }
@@ -12331,6 +12284,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.15',
+        ['Норма и доп. репорт теперь прямо в поле ответа: кнопка «Норма / Доп. репорт» в панели над полем, окно с двумя вкладками, ник, уровень и должность заполняются один раз — дальше только вставить ссылки на скриншоты. Кнопки в навигации и ссылки на разделы больше не нужны']
+    ],
+    [
         '1.11.14',
         ['Норма и доп. репорт: тема открывается по номеру (длинные русские названия в ссылке больше не ломают переход, ошибка 400); ссылку без номера настройки не принимают и подсказывают, какую нужно']
     ],
@@ -13084,8 +13041,6 @@ function boot() {
         safe(() => Logo.apply());
         safe(() => QNav.mount());
         Bus.on('settings', () => safe(() => QNav.mount()));
-        // пришли по кнопке «Норма» / «Доп. репорт» — открыть окно на форме отчёта
-        safe(() => Reports.boot());
         safe(() => Stuck.start());
         // не срочное — когда браузер свободен, чтобы страница стала отзывчивой быстрее
         const idle = window.requestIdleCallback || (f => setTimeout(f, 200));
