@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.30
+// @version      1.11.31
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.30', // подставляет build.sh из @version
+    version: '1.11.31', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10431,7 +10431,8 @@ const Reports = {
                   });
             return row._p;
         };
-        const empty = r => !r.querySelector('input').value.trim();
+        // поле, куда сейчас грузится фото, не пустое: его нельзя убрать и занять другим файлом
+        const empty = r => !r._up && !r.querySelector('input').value.trim();
         const tidy = () => {
             // последнее поле заполнено — добавить пустое; лишние пустые в конце убрать (заполненные не трогаем)
             if (!empty(box.lastElementChild) && box.childElementCount < max) add();
@@ -10462,7 +10463,7 @@ const Reports = {
         // несколько файлов — по свободным полям, новые поля добавляются сами
         const putMany = async (row, files) => {
             for (const [i, f] of files.entries()) {
-                let r = i ? [...box.children].find(x => empty(x) && !x._up) : row;
+                let r = i ? [...box.children].find(empty) : row;
                 if (!r && box.childElementCount < max) (add(), (r = box.lastElementChild));
                 if (!r) return toast(`Сюда помещается не больше ${max} фото`, 'err');
                 await put(r, f);
@@ -10502,7 +10503,7 @@ const Reports = {
                 if (!files.length) return;
                 e.preventDefault();
                 e.stopPropagation();
-                putMany(empty(row) ? row : [...box.children].find(x => empty(x) && !x._up) || row, files);
+                putMany(empty(row) ? row : [...box.children].find(empty) || row, files);
             });
             box.appendChild(row);
         };
@@ -10517,6 +10518,12 @@ const Reports = {
                 return rows.map(r => r.dataset.src || (r._u && r._u) || '').filter(Boolean);
             },
             bad: () => [...box.children].filter(r => r.classList.contains('bad')).length,
+            // файлы бросили мимо поля — в первое свободное поле этого списка
+            take: files => {
+                const r = [...box.children].find(empty);
+                if (r) putMany(r, files);
+                else toast('Свободных полей для фото нет', 'err');
+            },
             focus: () => box.querySelector('input').focus()
         };
     },
@@ -10600,6 +10607,18 @@ const Reports = {
         };
         // скриншот /astats — один; остальное — сколько угодно
         scrim.querySelectorAll('[data-ll]').forEach(box => (lists[box.dataset.ll] = this.linkList(box, warn, ['astats', 'stat'].includes(box.dataset.ll) ? 1 : 30)));
+        // файл бросили мимо поля: браузер открыл бы картинку вместо форума (и черновик ответа пропал бы) — кладём в видимый список
+        const files = e => [...((e.dataTransfer && e.dataTransfer.types) || [])].includes('Files');
+        scrim.addEventListener('dragover', e => files(e) && e.preventDefault());
+        scrim.addEventListener('drop', e => {
+            if (!files(e)) return;
+            e.preventDefault();
+            const imgs = this.imgFiles(e.dataTransfer);
+            if (!imgs.length) return toast('Это не картинка', 'err');
+            const vis = [...scrim.querySelectorAll('[data-ll]')].filter(b => b.offsetParent && b.querySelector('.vd-ll-row'));
+            const box = vis.find(b => [...b.children].some(r => !r._up && !r.querySelector('input').value.trim())) || vis[0];
+            if (box) lists[box.dataset.ll].take(imgs);
+        });
         // вкладки
         const show = k => {
             kind = k;
@@ -12841,6 +12860,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.31',
+        ['Отчёты: поле, куда грузится фото, больше не может пропасть при вводе в соседнее; файл, брошенный мимо поля, не открывается вместо форума, а встаёт в свободное поле']
     ],
     [
         '1.11.30',
