@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.20
+// @version      1.11.21
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.20', // подставляет build.sh из @version
+    version: '1.11.21', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10095,7 +10095,8 @@ const REPORT_KINDS = {
     norm: { name: 'Норма' },
     dop: { name: 'Доп. репорт' }
 };
-// проделанная работа в доп. репорте: кнопка → свои ссылки на фото (одна МП — одно фото), количество считается само
+// проделанная работа в доп. репорте: МП — по фото на каждую (количество считается само),
+// онлайн и реакции видны на одном скриншоте статистики — одно фото на оба
 const DOP_WORK = ['МП', 'Онлайн', 'Реакция'];
 // уровни админ-прав (в отчёт пишется число)
 const ADMIN_LEVELS = { 1: 'Младший модератор', 2: 'Модератор', 3: 'Старший модератор', 4: 'Администратор', 5: 'Старший администратор' };
@@ -10217,7 +10218,7 @@ const Reports = {
                       ['Уровень прав', this.level()],
                       ['Должность', c.position],
                       ['За какой день подаётся отчёт', v.date],
-                      ['Какая работа была проделана', v.works.map(w => (w.imgs.length > 1 ? `${w.name} (${w.imgs.length})` : w.name)).join(', ')],
+                      ['Какая работа была проделана', v.works.map(w => (w.count && w.imgs.length > 1 ? `${w.name} (${w.imgs.length})` : w.name)).join(', ')],
                       // фото по видам работы; если вид один — просто фото
                       ['Скриншоты проделанной работы', v.works.length > 1 ? '\n' + v.works.map(w => `${w.name}:\n${this.img(w.imgs)}`).join('\n') : this.img(v.works[0].imgs)]
                   ];
@@ -10305,7 +10306,8 @@ const Reports = {
                 <div class="vd-rep-row"><div class="vd-rep-l">За какой день</div><input class="inp" type="date" data-k="day" value="${iso}" max="${iso}" style="width:170px"></div>
                 <div class="vd-rep-l" style="margin-top:12px">Какая работа была проделана</div>
                 <div class="vd-dop-tags">${DOP_WORK.map((n, i) => `<button type="button" class="btn" data-w="${i}">${n}</button>`).join('')}</div>
-                ${DOP_WORK.map((n, i) => `<div class="vd-dop-sec" data-ws="${i}" hidden><div class="vd-rep-l">${n} <span class="muted" data-cnt="${i}"></span></div><div class="vd-ll" data-ll="w${i}"></div></div>`).join('')}
+                <div class="vd-dop-sec" data-ws="mp" hidden><div class="vd-rep-l">МП — по фото на каждую <span class="muted" data-cnt="mp"></span></div><div class="vd-ll" data-ll="mp"></div></div>
+                <div class="vd-dop-sec" data-ws="stat" hidden><div class="vd-rep-l"><span data-l="statname">Онлайн</span> — скриншот статистики</div><div class="vd-ll" data-ll="stat"></div></div>
               </div>
               <div class="muted" data-a="warn" style="font-size:12px;min-height:16px"></div>
               <div class="btns" style="margin-top:8px"><span style="flex:1"></span>
@@ -10345,13 +10347,11 @@ const Reports = {
         const warn = () => {
             const n = Object.values(lists).reduce((a, l) => a + l.bad(), 0);
             $('[data-a="warn"]').textContent = n ? `Не открывается как картинка: ${n} — проверь ссылку` : '';
-            DOP_WORK.forEach((_, i) => {
-                const k = lists['w' + i].values().length;
-                $(`[data-cnt="${i}"]`).textContent = k ? `· фото: ${k}` : '';
-            });
+            const k = lists.mp.values().length;
+            $('[data-cnt="mp"]').textContent = k ? `· МП: ${k}` : '';
         };
         // скриншот /astats — один; остальное — сколько угодно
-        scrim.querySelectorAll('[data-ll]').forEach(box => (lists[box.dataset.ll] = this.linkList(box, warn, box.dataset.ll === 'astats' ? 1 : 30)));
+        scrim.querySelectorAll('[data-ll]').forEach(box => (lists[box.dataset.ll] = this.linkList(box, warn, ['astats', 'stat'].includes(box.dataset.ll) ? 1 : 30)));
         // вкладки
         const show = k => {
             kind = k;
@@ -10362,13 +10362,18 @@ const Reports = {
         };
         scrim.querySelectorAll('[data-t]').forEach(b => (b.onclick = () => show(b.dataset.t)));
         show(kind);
-        // вид работы: нажал — открылось поле для фото этой работы
+        // вид работы: МП — своё поле со списком фото, онлайн/реакции — одно общее поле скриншота статистики
+        const sel = () => [...scrim.querySelectorAll('[data-w].pri')].map(b => +b.dataset.w);
         scrim.querySelectorAll('[data-w]').forEach(b => {
             b.onclick = () => {
                 const on = !b.classList.contains('pri');
                 b.classList.toggle('pri', on);
-                $(`[data-ws="${b.dataset.w}"]`).hidden = !on;
-                if (on) lists['w' + b.dataset.w].focus();
+                const s = sel();
+                const stat = s.filter(i => i > 0).map(i => DOP_WORK[i]);
+                $('[data-ws="mp"]').hidden = !s.includes(0);
+                $('[data-ws="stat"]').hidden = !stat.length;
+                $('[data-l="statname"]').textContent = stat.join(' и ');
+                if (on) (+b.dataset.w === 0 ? lists.mp : lists.stat).focus();
             };
         });
         const go = send => {
@@ -10387,12 +10392,15 @@ const Reports = {
                 if (!v.astats.length && !v.proofs.length) return toast('Вставь ссылку на скриншот', 'err');
             } else {
                 v.date = this.ruDate(($('[data-k="day"]') || {}).value) || this.today();
-                const on = [...scrim.querySelectorAll('[data-w].pri')].map(b => +b.dataset.w);
+                const on = sel();
                 if (!on.length) return toast('Отметь, какая работа была проделана', 'err');
-                v.works = on.map(i => ({ name: DOP_WORK[i], imgs: lists['w' + i].values() }));
+                const stat = on.filter(i => i > 0).map(i => DOP_WORK[i]);
+                v.works = [];
+                if (on.includes(0)) v.works.push({ name: 'МП', imgs: lists.mp.values(), count: true });
+                if (stat.length) v.works.push({ name: stat.join(', '), names: stat, imgs: lists.stat.values() });
                 const empty = v.works.find(w => !w.imgs.length);
                 if (empty) return toast(`${empty.name}: вставь ссылку на фото`, 'err');
-                bad = on.reduce((a, i) => a + lists['w' + i].bad(), 0);
+                bad = lists.mp.bad() + lists.stat.bad();
             }
             if (send && bad && !confirm('Часть ссылок не открывается как картинка. Всё равно отправить?')) return;
             close();
@@ -12414,7 +12422,7 @@ const CHANGES = [
     ],
     [
         '1.11.20',
-        ['Доп. репорт: нажал «МП» / «Онлайн» / «Реакция» — появляется поле для ссылки на фото, вставил — снизу сразу следующее (одна МП — одно фото, количество считается само). В норме доказательства так же — по ссылке в строке, с превью']
+        ['Доп. репорт: «МП» — поле для фото, вставил — снизу сразу следующее (одна МП — одно фото, количество считается само); «Онлайн» и «Реакция» — одно общее фото статистики. В норме доказательства так же — по ссылке в строке, с превью']
     ],
     [
         '1.11.15',
