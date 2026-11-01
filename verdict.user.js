@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.18
+// @version      1.11.19
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.18', // подставляет build.sh из @version
+    version: '1.11.19', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10112,16 +10112,16 @@ const Reports = {
         const clean = list => [...new Set(list.map(x => x.replace(/\s+/g, ' ').trim()).filter(x => x && !/^сервер/i.test(x)))];
         if (fromPage.length) {
             const list = clean(fromPage);
-            Store.set('myBanners', { me, list, at: Date.now() });
+            Store.set('myBanners2', { me, list, at: Date.now() });
             return list;
         }
-        const c = Store.get('myBanners', null);
+        const c = Store.get('myBanners2', null);
         return c && c.me === me ? c.list : [];
     },
     // своих сообщений на странице нет — плашки берём со своей страницы профиля (раз в сутки)
     async loadBanners() {
         const me = Page.me();
-        const c = Store.get('myBanners', null);
+        const c = Store.get('myBanners2', null);
         if (!me || (c && c.me === me && c.list.length && Date.now() - c.at < 864e5)) return;
         // ссылка в шапке ведёт на /account/ — профиль открываем по номеру пользователя из настроек форума
         const parse = html => new DOMParser().parseFromString(html, 'text/html');
@@ -10140,7 +10140,7 @@ const Reports = {
             // плашки в шапке профиля: .memberHeader-banners .userBanner (без «Сервер …»)
             const list = [...doc.querySelectorAll('.memberHeader-banners .userBanner, .memberHeader .userBanner')].map(b => b.textContent.replace(/\s+/g, ' ').trim());
             const clean = [...new Set(list.filter(x => x && !/^сервер/i.test(x)))];
-            if (clean.length) Store.set('myBanners', { me, list: clean, at: Date.now() });
+            if (clean.length) Store.set('myBanners2', { me, list: clean, at: Date.now() });
         } catch {
             /* нет сети — возьмём введённое вручную */
         }
