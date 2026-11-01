@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.25
+// @version      1.11.26
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.25', // подставляет build.sh из @version
+    version: '1.11.26', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -11352,7 +11352,7 @@ const Lightbox = {
     // встроенный плеер сайта (YouTube, Rutube, VK, Google Диск): ссылка на его embed-страницу
     EMB: 'vdembed:',
     // страницы хостингов: картинку берём из og:image
-    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|ibb\.co\.com|kili\.ru|1drv\.ms|onedrive\.live\.com|videovssylku\.ru|bedrive\.ru|screenapp\.io|imgfy\.ru|radikal\.cloud|radikal\.ru|fastpic\.org|fastpic\.ru|joxi\.ru|joxi\.net|imageban\.ru|ipic\.su|funkyimg\.com|pixs\.ru|savepice\.ru|imgsh\.net|vfl\.ru|picshare\.ru|lightshot\.com|disk\.yandex\.ru|disk\.yandex\.com|yadi\.sk|cloud\.mail\.ru|photos\.app\.goo\.gl|ibb\.org|wertigo\.ru)$/i,
+    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|ibb\.co\.com|kili\.ru|1drv\.ms|onedrive\.live\.com|videovssylku\.ru|bedrive\.ru|screenapp\.io|imgfy\.ru|fotora\.ru|radikal\.cloud|radikal\.ru|fastpic\.org|fastpic\.ru|joxi\.ru|joxi\.net|imageban\.ru|ipic\.su|funkyimg\.com|pixs\.ru|savepice\.ru|imgsh\.net|vfl\.ru|picshare\.ru|lightshot\.com|disk\.yandex\.ru|disk\.yandex\.com|yadi\.sk|cloud\.mail\.ru|photos\.app\.goo\.gl|ibb\.org|wertigo\.ru)$/i,
     // точно не фото — такие ссылки не проверяем
     NOT: /(^|\.)(vk\.com|vk\.ru|vkvideo\.ru|youtube\.com|youtu\.be|t\.me|telegram\.me|discord\.gg|twitch\.tv|tiktok\.com|ok\.ru|rutube\.ru|wikipedia\.org|blackrussia\.online|google\.com|github\.com|play\.google\.com|apps\.apple\.com)$/i,
     // ссылки в постах: обычный текст, карточки ссылок и разметка тем, где пост не в .bbWrapper
@@ -12573,6 +12573,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.26',
+        ['Просмотр доказательств: добавлен хостинг fotora.ru']
     ],
     [
         '1.11.25',
