@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.19
+// @version      1.11.20
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.19', // подставляет build.sh из @version
+    version: '1.11.20', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5201,6 +5201,15 @@ const UI_CSS = `
 .vd-rep-tabs button { padding: 0 14px; }
 .vd-rep-btn { color: #2fbf71 !important; }
 .vd-rep [hidden] { display: none !important; }
+.vd-ll { display: flex; flex-direction: column; gap: 6px; }
+.vd-ll-row { display: flex; align-items: center; gap: 8px; }
+.vd-ll-row .inp { flex: 1; height: 36px; }
+.vd-ll-prev { width: 48px; height: 36px; flex: none; border-radius: 7px; border: 1px solid var(--line); background: rgba(255,255,255,.04); overflow: hidden; }
+.vd-ll-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vd-ll-row.ok .vd-ll-prev { border-color: #2fbf71; }
+.vd-ll-row.bad .vd-ll-prev, .vd-ll-row.bad .inp { border-color: #e5484d; }
+.vd-dop-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.vd-dop-sec { margin-top: 12px; }
 .vd-rep-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--tx-2); padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--line); margin-bottom: 12px; }
 .vd-rep-who b { color: var(--tx); }
 .vd-rep-edit { margin-left: auto; background: none; border: 0; color: var(--acc2, #6cb6ff); cursor: pointer; font: inherit; font-size: 12px; padding: 0; }
@@ -10086,12 +10095,8 @@ const REPORT_KINDS = {
     norm: { name: 'Норма' },
     dop: { name: 'Доп. репорт' }
 };
-// проделанная работа в доп. репорте: кнопка → строка в пятом пункте (уточнение необязательное)
-const DOP_WORK = [
-    ['МП', 'время, напр. 18:00'],
-    ['Онлайн', 'сколько, напр. 3 ч'],
-    ['Реакция', 'на что / сколько']
-];
+// проделанная работа в доп. репорте: кнопка → свои ссылки на фото (одна МП — одно фото), количество считается само
+const DOP_WORK = ['МП', 'Онлайн', 'Реакция'];
 // уровни админ-прав (в отчёт пишется число)
 const ADMIN_LEVELS = { 1: 'Младший модератор', 2: 'Модератор', 3: 'Старший модератор', 4: 'Администратор', 5: 'Старший администратор' };
 const Reports = {
@@ -10212,10 +10217,16 @@ const Reports = {
                       ['Уровень прав', this.level()],
                       ['Должность', c.position],
                       ['За какой день подаётся отчёт', v.date],
-                      ['Какая работа была проделана', v.work],
-                      ['Скриншоты проделанной работы', this.img(v.proofs)]
+                      ['Какая работа была проделана', v.works.map(w => (w.imgs.length > 1 ? `${w.name} (${w.imgs.length})` : w.name)).join(', ')],
+                      // фото по видам работы; если вид один — просто фото
+                      ['Скриншоты проделанной работы', v.works.length > 1 ? '\n' + v.works.map(w => `${w.name}:\n${this.img(w.imgs)}`).join('\n') : this.img(v.works[0].imgs)]
                   ];
-        return lines.map(([label, val], i) => `${i + 1}. ${label}: ${val || ''}`.replace(/: \[IMG\]/, ':\n[IMG]')).join('\n');
+        return lines
+            .map(([label, val], i) => {
+                val = String(val || '');
+                return `${i + 1}. ${label}:` + (val.startsWith('\n') ? val : ' ' + val).replace(/^ \[IMG\]/, '\n[IMG]');
+            })
+            .join('\n');
     },
     // вставка в поле, где нажали кнопку; страница прокручивается к нему
     fill(kind, form, v, send) {
@@ -10227,13 +10238,48 @@ const Reports = {
         if (!btn) return toast('Не нашёл кнопку отправки — отправь вручную', 'err');
         setTimeout(() => btn.click(), 300);
     },
-    // окно: вкладки «Норма» / «Доп. репорт», сверху — кто ты (с форума), ниже только ссылки на скриншоты
+    // список ссылок: поле на одну ссылку с превью справа; заполнил — снизу появляется следующее
+    linkList(box, onChange, max = 30) {
+        const add = () => {
+            const row = U.h(`<div class="vd-ll-row"><input class="inp" placeholder="${box.childElementCount ? 'Ещё ссылка на фото' : 'Ссылка на фото'}"><span class="vd-ll-prev"></span></div>`);
+            const inp = row.querySelector('input'),
+                prev = row.querySelector('.vd-ll-prev');
+            inp.oninput = U.debounce(async () => {
+                const u = this.links(inp.value)[0] || '';
+                row.dataset.src = '';
+                row.classList.remove('bad', 'ok');
+                prev.innerHTML = '';
+                if (u) {
+                    const [img] = await this.toImages([u]);
+                    row.dataset.src = img;
+                    const im = document.createElement('img');
+                    im.referrerPolicy = 'no-referrer';
+                    im.onload = () => (row.classList.add('ok'), onChange());
+                    im.onerror = () => (row.classList.add('bad'), onChange());
+                    im.src = img;
+                    prev.appendChild(im);
+                }
+                // последнее поле заполнено — добавить пустое; лишние пустые снизу убрать
+                const rows = [...box.children];
+                const last = rows[rows.length - 1];
+                if (last.querySelector('input').value.trim() && box.childElementCount < max) add();
+                else while (box.childElementCount > 1 && !box.children[box.childElementCount - 2].querySelector('input').value.trim()) box.lastElementChild.remove();
+                onChange();
+            }, 250);
+            box.appendChild(row);
+            return inp;
+        };
+        add();
+        return {
+            values: () => [...box.children].map(r => r.dataset.src).filter(Boolean),
+            bad: () => [...box.children].filter(r => r.classList.contains('bad')).length,
+            focus: () => box.querySelector('input').focus()
+        };
+    },
+    // окно: вкладки «Норма» / «Доп. репорт», сверху — кто ты (с форума), ниже только ссылки на фото
     open(form, kind) {
         kind = REPORT_KINDS[kind] ? kind : Store.get('reportTab', 'norm');
-        this.loadBanners().then(() => paintMe());
         const iso = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
-        const linkBox = (k, title, ph, h, opt) =>
-            `<div class="vd-rep-f"><div class="vd-rep-l">${title}${opt ? ' <span class="muted">· можно пусто</span>' : ''}</div><textarea class="inp" data-k="${k}" style="height:${h}px;min-height:42px" placeholder="${ph}"></textarea><div class="vd-norm-prev" data-p="${k}"></div></div>`;
         const c = this.cfg();
         const scrim = Layer.add(
             U.h(`<div class="scrim"><div class="modal sm vd-rep" style="width:min(560px,100%)">
@@ -10249,16 +10295,17 @@ const Reports = {
                 <label>Уровень прав<select class="inp" data-m="level"><option value="">с форума</option>${Object.entries(ADMIN_LEVELS)
                     .map(([k, v]) => `<option value="${k}" ${k === c.level ? 'selected' : ''}>${k} — ${v}</option>`)
                     .join('')}</select></label>
-                <label style="grid-column:1/-1">Должность<input class="inp" data-m="position" value="${U.esc(c.position)}" placeholder="с форума (плашки у твоих сообщений)"></label>
+                <label style="grid-column:1/-1">Должность<input class="inp" data-m="position" value="${U.esc(c.position)}" placeholder="с форума (плашки в профиле)"></label>
               </div>
-              <div data-body="norm">${linkBox('astats', 'Скриншот /astats', 'Вставь ссылку на фото', 42)}${linkBox('proofs', 'Доказательства проделанной работы', 'Ссылки на фото (по одной в строке)', 64, true)}</div>
+              <div data-body="norm">
+                <div class="vd-rep-l">Скриншот /astats</div><div class="vd-ll" data-ll="astats"></div>
+                <div class="vd-rep-l" style="margin-top:10px">Доказательства проделанной работы <span class="muted">· можно пусто</span></div><div class="vd-ll" data-ll="proofs"></div>
+              </div>
               <div data-body="dop">
                 <div class="vd-rep-row"><div class="vd-rep-l">За какой день</div><input class="inp" type="date" data-k="day" value="${iso}" max="${iso}" style="width:170px"></div>
-                <div class="vd-rep-l" style="margin-top:10px">Какая работа была проделана</div>
-                <div class="vd-dop-work">${DOP_WORK.map(
-                    ([n, ph], i) => `<div class="vd-dop-it" data-i="${i}"><button type="button" class="btn">${n}</button><input class="inp" placeholder="${ph}" hidden></div>`
-                ).join('')}</div>
-                ${linkBox('dproofs', 'Скриншот проделанной работы', 'Вставь ссылку на фото', 42)}
+                <div class="vd-rep-l" style="margin-top:12px">Какая работа была проделана</div>
+                <div class="vd-dop-tags">${DOP_WORK.map((n, i) => `<button type="button" class="btn" data-w="${i}">${n}</button>`).join('')}</div>
+                ${DOP_WORK.map((n, i) => `<div class="vd-dop-sec" data-ws="${i}" hidden><div class="vd-rep-l">${n} <span class="muted" data-cnt="${i}"></span></div><div class="vd-ll" data-ll="w${i}"></div></div>`).join('')}
               </div>
               <div class="muted" data-a="warn" style="font-size:12px;min-height:16px"></div>
               <div class="btns" style="margin-top:8px"><span style="flex:1"></span>
@@ -10275,13 +10322,17 @@ const Reports = {
         const paintMe = () => {
             if (!scrim.isConnected) return;
             const m = this.me();
-            const lv = m.level ? `${m.level} ур.` : '';
-            $('[data-l="who"]').innerHTML = [m.nick ? `<b>${U.esc(m.nick)}</b>` : '<b style="color:#e5484d">ник не найден</b>', m.position ? U.esc(m.position) : '<span style="color:#f5a524">должность не найдена</span>', lv]
+            $('[data-l="who"]').innerHTML = [
+                m.nick ? `<b>${U.esc(m.nick)}</b>` : '<b style="color:#e5484d">ник не найден</b>',
+                m.position ? U.esc(m.position) : '<span style="color:#f5a524">должность не найдена</span>',
+                m.level ? `${m.level} ур.` : ''
+            ]
                 .filter(Boolean)
                 .join(' · ');
             if (!m.nick || !m.position) $('[data-l="manual"]').hidden = false;
         };
         paintMe();
+        this.loadBanners().then(paintMe);
         $('[data-a="edit"]').onclick = () => ($('[data-l="manual"]').hidden = !$('[data-l="manual"]').hidden);
         scrim.querySelectorAll('[data-m]').forEach(el => {
             el.onchange = () => {
@@ -10289,78 +10340,61 @@ const Reports = {
                 paintMe();
             };
         });
+        // списки ссылок
+        const lists = {};
+        const warn = () => {
+            const n = Object.values(lists).reduce((a, l) => a + l.bad(), 0);
+            $('[data-a="warn"]').textContent = n ? `Не открывается как картинка: ${n} — проверь ссылку` : '';
+            DOP_WORK.forEach((_, i) => {
+                const k = lists['w' + i].values().length;
+                $(`[data-cnt="${i}"]`).textContent = k ? `· фото: ${k}` : '';
+            });
+        };
+        // скриншот /astats — один; остальное — сколько угодно
+        scrim.querySelectorAll('[data-ll]').forEach(box => (lists[box.dataset.ll] = this.linkList(box, warn, box.dataset.ll === 'astats' ? 1 : 30)));
         // вкладки
         const show = k => {
             kind = k;
             Store.set('reportTab', k);
             scrim.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === k));
             scrim.querySelectorAll('[data-body]').forEach(b => (b.hidden = b.dataset.body !== k));
-            const f = scrim.querySelector(`[data-body="${k}"] textarea, [data-body="${k}"] .vd-dop-it button`);
-            if (f) setTimeout(() => f.focus(), 30);
+            if (k === 'norm') setTimeout(() => lists.astats.focus(), 30);
         };
         scrim.querySelectorAll('[data-t]').forEach(b => (b.onclick = () => show(b.dataset.t)));
         show(kind);
-        // работа в доп. репорте: нажал — выбрано, появляется поле уточнения
-        scrim.querySelectorAll('.vd-dop-it').forEach(it => {
-            const b = it.querySelector('button'),
-                inp = it.querySelector('input');
+        // вид работы: нажал — открылось поле для фото этой работы
+        scrim.querySelectorAll('[data-w]').forEach(b => {
             b.onclick = () => {
                 const on = !b.classList.contains('pri');
                 b.classList.toggle('pri', on);
-                inp.hidden = !on;
-                if (on) inp.focus();
+                $(`[data-ws="${b.dataset.w}"]`).hidden = !on;
+                if (on) lists['w' + b.dataset.w].focus();
             };
         });
-        // превью: страницы хостингов (yapx, prnt.sc…) превращаются в картинки, не открылось — красная рамка
-        const bad = new Set();
-        const warn = () => ($('[data-a="warn"]').textContent = bad.size ? `Не открывается как картинка: ${bad.size} — проверь ссылку` : '');
-        scrim.querySelectorAll('textarea[data-k]').forEach(ta => {
-            ta.oninput = U.debounce(async () => {
-                const box = $(`[data-p="${ta.dataset.k}"]`);
-                box.querySelectorAll('img').forEach(im => bad.delete(im.dataset.src));
-                box.innerHTML = '';
-                const list = this.links(ta.value);
-                const imgs = await this.toImages(list);
-                imgs.forEach((u, i) => {
-                    const im = document.createElement('img');
-                    im.referrerPolicy = 'no-referrer';
-                    im.title = list[i];
-                    im.dataset.src = u;
-                    im.onload = () => (bad.delete(u), im.classList.remove('bad'), warn());
-                    im.onerror = () => (bad.add(u), im.classList.add('bad'), warn());
-                    im.src = u;
-                    box.appendChild(im);
-                });
-                warn();
-            }, 300);
-        });
-        const val = k => ($(`[data-k="${k}"]`) || {}).value;
-        const go = async send => {
+        const go = send => {
             const m = this.me();
             if (!m.nick) {
                 $('[data-l="manual"]').hidden = false;
                 return $('[data-m="nick"]').focus();
             }
             const v = {};
+            let bad = 0;
             if (kind === 'norm') {
-                v.astats = await this.toImages(this.links(val('astats')));
-                v.proofs = await this.toImages(this.links(val('proofs')));
+                v.astats = lists.astats.values();
+                v.proofs = lists.proofs.values();
                 v.date = this.today();
+                bad = lists.astats.bad() + lists.proofs.bad();
                 if (!v.astats.length && !v.proofs.length) return toast('Вставь ссылку на скриншот', 'err');
             } else {
-                v.proofs = await this.toImages(this.links(val('dproofs')));
-                v.date = this.ruDate(val('day')) || this.today();
-                v.work = [...scrim.querySelectorAll('.vd-dop-it')]
-                    .filter(it => it.querySelector('button').classList.contains('pri'))
-                    .map(it => {
-                        const d = it.querySelector('input').value.trim();
-                        return DOP_WORK[+it.dataset.i][0] + (d ? ` (${d})` : '');
-                    })
-                    .join(', ');
-                if (!v.work) return toast('Отметь, какая работа была проделана', 'err');
-                if (!v.proofs.length) return toast('Вставь ссылку на скриншот', 'err');
+                v.date = this.ruDate(($('[data-k="day"]') || {}).value) || this.today();
+                const on = [...scrim.querySelectorAll('[data-w].pri')].map(b => +b.dataset.w);
+                if (!on.length) return toast('Отметь, какая работа была проделана', 'err');
+                v.works = on.map(i => ({ name: DOP_WORK[i], imgs: lists['w' + i].values() }));
+                const empty = v.works.find(w => !w.imgs.length);
+                if (empty) return toast(`${empty.name}: вставь ссылку на фото`, 'err');
+                bad = on.reduce((a, i) => a + lists['w' + i].bad(), 0);
             }
-            if (send && bad.size && !confirm('Часть ссылок не открывается как картинка. Всё равно отправить?')) return;
+            if (send && bad && !confirm('Часть ссылок не открывается как картинка. Всё равно отправить?')) return;
             close();
             this.fill(kind, form, v, send);
         };
@@ -12377,6 +12411,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.20',
+        ['Доп. репорт: нажал «МП» / «Онлайн» / «Реакция» — появляется поле для ссылки на фото, вставил — снизу сразу следующее (одна МП — одно фото, количество считается само). В норме доказательства так же — по ссылке в строке, с превью']
     ],
     [
         '1.11.15',
