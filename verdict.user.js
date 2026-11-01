@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.15
+// @version      1.11.16
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.15', // подставляет build.sh из @version
+    version: '1.11.16', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5199,6 +5199,15 @@ const UI_CSS = `
 .vd-norm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .vd-norm-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--tx-2); }
 .vd-rep-tabs button { padding: 0 14px; }
+.vd-rep-btn { color: #2fbf71 !important; }
+.vd-rep [hidden] { display: none !important; }
+.vd-rep-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--tx-2); padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--line); margin-bottom: 12px; }
+.vd-rep-who b { color: var(--tx); }
+.vd-rep-edit { margin-left: auto; background: none; border: 0; color: var(--acc2, #6cb6ff); cursor: pointer; font: inherit; font-size: 12px; padding: 0; }
+.vd-rep-l { font-size: 12px; color: var(--tx-2); margin: 0 0 5px; font-weight: 600; }
+.vd-rep-f { margin-bottom: 10px; }
+.vd-rep-row { display: flex; align-items: center; gap: 12px; }
+.vd-rep-row .vd-rep-l { margin: 0; }
 .vd-rep-me { margin-bottom: 12px; font-size: 12.5px; color: var(--tx-2); }
 .vd-rep-me summary { cursor: pointer; }
 .vd-dop-work { display: flex; flex-direction: column; gap: 6px; }
@@ -6505,7 +6514,7 @@ class ReplyBar {
               ${freq ? `<button class="chip ghost" data-g="freq" style="--c:var(--acc)"><span class="vic" style="--c:var(--acc)">${icon('star', 13)}</span>Частые</button>` : ''}
               </div>
               <span class="tools">
-                ${Reports.allowed() ? `<button class="chip ghost vd-rep-btn" data-a="report" style="--c:#2fbf71" title="Норма и доп. репорт: вставить отчёт в это поле"><span class="vic" style="--c:#2fbf71">${icon('check', 13)}</span>Норма / Доп. репорт</button>` : ''}
+                ${Reports.allowed() ? `<button class="icon-btn vd-rep-btn" data-a="report" title="Норма / доп. репорт — вставить отчёт в это поле">${icon('check')}</button>` : ''}
                 <button class="icon-btn acc" data-a="idea" title="Предложить идею разработчику">${icon('bulb')}</button>
                 <button class="icon-btn" data-a="search" title="Поиск ответа (Ctrl+K)">${icon('search')}</button>
                 <button class="icon-btn" data-a="settings" title="Настройки VERDICT (Alt+V)">${icon('gear')}</button>
@@ -10089,46 +10098,105 @@ const Reports = {
     cfg() {
         return Settings.get().reports;
     },
-    // кураторам и главной администрации отчёты не нужны
+    // главной администрации отчёты не нужны (куратор и ниже — видят)
     allowed() {
-        return !['ga', 'curator', ''].includes(Settings.get().role || '');
+        return !['ga', ''].includes(Settings.get().role || '');
     },
-    // уровень: выбранный в настройках, иначе по должности в скрипте
+    // плашки должностей на форуме («Модератор», «Следящий за агентами поддержки»), без «Сервер …»
+    banners() {
+        const me = Page.me();
+        const own = me
+            ? [...document.querySelectorAll('.message')].filter(m => (m.dataset.author || '').toLowerCase() === me.toLowerCase())
+            : [];
+        const fromPage = own.length ? [...own[0].querySelectorAll('.userBanner, .message-userBanner')].map(b => b.textContent.trim()) : [];
+        const clean = list => [...new Set(list.map(x => x.replace(/\s+/g, ' ').trim()).filter(x => x && !/^сервер/i.test(x)))];
+        if (fromPage.length) {
+            const list = clean(fromPage);
+            Store.set('myBanners', { me, list, at: Date.now() });
+            return list;
+        }
+        const c = Store.get('myBanners', null);
+        return c && c.me === me ? c.list : [];
+    },
+    // своих сообщений на странице нет — плашки берём со своей страницы профиля (раз в сутки)
+    async loadBanners() {
+        const me = Page.me();
+        const c = Store.get('myBanners', null);
+        if (!me || (c && c.me === me && Date.now() - c.at < 864e5)) return;
+        const a = document.querySelector('.p-navgroup-link--user[href], a.p-navgroup-link--user');
+        if (!a) return;
+        try {
+            const html = await (await fetch(a.href, { credentials: 'include' })).text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const list = [...doc.querySelectorAll('.memberHeader .userBanner, .memberHeader-banners .userBanner, .memberHeader-blurb .userBanner')].map(b =>
+                b.textContent.replace(/\s+/g, ' ').trim()
+            );
+            const clean = [...new Set(list.filter(x => x && !/^сервер/i.test(x)))];
+            if (clean.length) Store.set('myBanners', { me, list: clean, at: Date.now() });
+        } catch {
+            /* нет сети — возьмём введённое вручную */
+        }
+    },
+    // ник, должность, уровень: введённое вручную важнее, иначе — с форума
+    me() {
+        const c = this.cfg();
+        const b = this.banners();
+        const names = Object.entries(ADMIN_LEVELS);
+        const byBanner = b.map(x => (names.find(([, n]) => n.toLowerCase() === x.toLowerCase()) || [])[0]).filter(Boolean);
+        const level = ADMIN_LEVELS[c.level] ? c.level : byBanner.length ? String(Math.max(...byBanner.map(Number))) : { jmod: '1', admin: '4' }[Settings.get().role] || '';
+        return { nick: c.nick || Page.me(), position: c.position || b.join(', '), level };
+    },
     level() {
-        const l = this.cfg().level;
-        if (ADMIN_LEVELS[l]) return l;
-        return { jmod: '1', admin: '4' }[Settings.get().role] || '';
+        return this.me().level;
     },
+    // дата как на форуме: 01.11.26
     today() {
         const d = new Date();
-        return [d.getDate(), d.getMonth() + 1].map(x => String(x).padStart(2, '0')).join('.') + '.' + d.getFullYear();
+        return [d.getDate(), d.getMonth() + 1, d.getFullYear() % 100].map(x => String(x).padStart(2, '0')).join('.');
     },
     ruDate(iso) {
-        return iso ? iso.split('-').reverse().join('.') : '';
+        if (!iso) return '';
+        const [y, m, d] = iso.split('-');
+        return `${d}.${m}.${y.slice(2)}`;
     },
     // страница imgur → прямая ссылка на картинку
     direct(u) {
         const im = u.match(/^https?:\/\/(?:www\.)?imgur\.com\/([A-Za-z0-9]{5,10})$/);
         return im ? `https://i.imgur.com/${im[1]}.png` : u;
     },
+    // ссылки делим только по пробелам и переводам строк: в ссылках ВК бывают запятые (as=32x18,48x27,…)
     links(text) {
         return String(text || '')
-            .split(/[\s,]+/)
+            .split(/\s+/)
             .filter(x => /^https?:\/\/\S+$/i.test(x))
             .map(x => this.direct(x));
     },
+    // страница хостинга (yapx, prnt.sc, imgur-альбом…) → прямая ссылка на картинку, как в просмотре фото
+    async toImages(list) {
+        const out = [];
+        for (const u of list) {
+            let r = null;
+            try {
+                r = await Lightbox.resolve(u, true);
+            } catch {
+                r = null;
+            }
+            out.push(typeof r === 'string' && r && !r.startsWith(Lightbox.VID) ? r : u);
+        }
+        return out;
+    },
     img(list) {
-        return list.length ? '\n' + list.map(u => `[IMG]${u}[/IMG]`).join('\n') : '';
+        return list.map(u => `[IMG]${u}[/IMG]`).join('\n');
     },
     build(kind, v) {
-        const c = this.cfg();
+        const c = this.me();
         const lines =
             kind === 'norm'
                 ? [
                       ['Nick_Name', c.nick],
                       ['Занимаемая должность', c.position],
-                      ['Скриншот /astats', this.img(v.astats)],
-                      ['Доказательства проделанной работы за день', this.img(v.proofs)],
+                      ['Скриншот /astats', this.img(v.astats) || '-'],
+                      ['Доказательства проделанной работы за день', this.img(v.proofs) || '-'],
                       ['Дата', v.date]
                   ]
                 : [
@@ -10139,7 +10207,7 @@ const Reports = {
                       ['Какая работа была проделана', v.work],
                       ['Скриншоты проделанной работы', this.img(v.proofs)]
                   ];
-        return lines.map(([label, val], i) => `${i + 1}. ${label}: ${val || ''}`).join('\n');
+        return lines.map(([label, val], i) => `${i + 1}. ${label}: ${val || ''}`.replace(/: \[IMG\]/, ':\n[IMG]')).join('\n');
     },
     // вставка в поле, где нажали кнопку; страница прокручивается к нему
     fill(kind, form, v, send) {
@@ -10151,42 +10219,43 @@ const Reports = {
         if (!btn) return toast('Не нашёл кнопку отправки — отправь вручную', 'err');
         setTimeout(() => btn.click(), 300);
     },
-    // окно: слева сверху вкладки «Норма» / «Доп. репорт», свои данные (один раз) и ссылки на скриншоты
+    // окно: вкладки «Норма» / «Доп. репорт», сверху — кто ты (с форума), ниже только ссылки на скриншоты
     open(form, kind) {
         kind = REPORT_KINDS[kind] ? kind : Store.get('reportTab', 'norm');
-        const c = this.cfg();
+        this.loadBanners().then(() => paintMe());
         const iso = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
-        const linkBox = (k, title, ph, h) =>
-            `<div class="sec"><h4>${title}</h4><textarea class="inp" data-k="${k}" style="height:${h}px;min-height:46px" placeholder="${ph}"></textarea><div class="vd-norm-prev" data-p="${k}"></div></div>`;
-        const need = !c.nick || !c.position;
+        const linkBox = (k, title, ph, h, opt) =>
+            `<div class="vd-rep-f"><div class="vd-rep-l">${title}${opt ? ' <span class="muted">· можно пусто</span>' : ''}</div><textarea class="inp" data-k="${k}" style="height:${h}px;min-height:42px" placeholder="${ph}"></textarea><div class="vd-norm-prev" data-p="${k}"></div></div>`;
+        const c = this.cfg();
         const scrim = Layer.add(
-            U.h(`<div class="scrim"><div class="modal sm" style="width:min(620px,100%)">
+            U.h(`<div class="scrim"><div class="modal sm vd-rep" style="width:min(560px,100%)">
             <div class="m-head">
               <div class="seg vd-rep-tabs">${Object.entries(REPORT_KINDS)
                   .map(([k, r]) => `<button type="button" data-t="${k}">${r.name}</button>`)
                   .join('')}</div>
               <span style="flex:1"></span><button class="icon-btn" data-a="x">${icon('x')}</button></div>
             <div class="pane">
-              <details class="vd-rep-me" ${need ? 'open' : ''}><summary>${need ? 'Заполни один раз: ник и должность' : `${U.esc(c.nick)} · ${U.esc(c.position)}`}</summary>
-                <div class="vd-norm-grid" style="margin-top:8px">
-                  <label>Ник<input class="inp" data-m="nick" value="${U.esc(c.nick)}" placeholder="Nick_Name"></label>
-                  <label>Уровень прав<select class="inp" data-m="level"><option value="">по должности</option>${Object.entries(ADMIN_LEVELS)
-                      .map(([k, v]) => `<option value="${k}" ${k === c.level ? 'selected' : ''}>${k} — ${v}</option>`)
-                      .join('')}</select></label>
-                  <label style="grid-column:1/-1">Полная должность<input class="inp" data-m="position" value="${U.esc(c.position)}" placeholder="Модератор, следящий за агентами поддержки"></label>
-                </div></details>
-              <div data-body="norm">${linkBox('astats', 'Скриншот /astats', 'Ссылка на фото', 46)}${linkBox('proofs', 'Доказательства проделанной работы', 'Ссылки на фото, по одной в строке', 84)}</div>
+              <div class="vd-rep-who"><span data-l="who"></span><button type="button" class="vd-rep-edit" data-a="edit">изменить</button></div>
+              <div class="vd-norm-grid" data-l="manual" hidden>
+                <label>Ник<input class="inp" data-m="nick" value="${U.esc(c.nick)}" placeholder="с форума"></label>
+                <label>Уровень прав<select class="inp" data-m="level"><option value="">с форума</option>${Object.entries(ADMIN_LEVELS)
+                    .map(([k, v]) => `<option value="${k}" ${k === c.level ? 'selected' : ''}>${k} — ${v}</option>`)
+                    .join('')}</select></label>
+                <label style="grid-column:1/-1">Должность<input class="inp" data-m="position" value="${U.esc(c.position)}" placeholder="с форума (плашки у твоих сообщений)"></label>
+              </div>
+              <div data-body="norm">${linkBox('astats', 'Скриншот /astats', 'Вставь ссылку на фото', 42)}${linkBox('proofs', 'Доказательства проделанной работы', 'Ссылки на фото (по одной в строке)', 64, true)}</div>
               <div data-body="dop">
-                <div class="vd-norm-grid"><label>За какой день<input class="inp" type="date" data-k="day" value="${iso}" max="${iso}"></label></div>
-                <div class="sec"><h4>Какая работа была проделана</h4><div class="vd-dop-work">${DOP_WORK.map(
+                <div class="vd-rep-row"><div class="vd-rep-l">За какой день</div><input class="inp" type="date" data-k="day" value="${iso}" max="${iso}" style="width:170px"></div>
+                <div class="vd-rep-l" style="margin-top:10px">Какая работа была проделана</div>
+                <div class="vd-dop-work">${DOP_WORK.map(
                     ([n, ph], i) => `<div class="vd-dop-it" data-i="${i}"><button type="button" class="btn">${n}</button><input class="inp" placeholder="${ph}" hidden></div>`
-                ).join('')}</div></div>
-                ${linkBox('dproofs', 'Скриншот проделанной работы', 'Ссылка на фото', 46)}
+                ).join('')}</div>
+                ${linkBox('dproofs', 'Скриншот проделанной работы', 'Вставь ссылку на фото', 42)}
               </div>
               <div class="muted" data-a="warn" style="font-size:12px;min-height:16px"></div>
-              <div class="btns" style="margin-top:10px"><span style="flex:1"></span>
+              <div class="btns" style="margin-top:8px"><span style="flex:1"></span>
                 <button class="btn" data-a="ins">${icon('pen', 14)}Вставить</button>
-                <button class="btn pri" data-a="send">${icon('check', 14)}Вставить и отправить</button>
+                <button class="btn pri" data-a="send">${icon('check', 14)}Отправить</button>
               </div>
             </div></div></div>`)
         );
@@ -10194,19 +10263,35 @@ const Reports = {
         const close = () => scrim.remove();
         $('[data-a="x"]').onclick = close;
         scrim.addEventListener('mousedown', e => e.target === scrim && close());
+        // кто ты: ник · должность · уровень (с форума или введённое)
+        const paintMe = () => {
+            if (!scrim.isConnected) return;
+            const m = this.me();
+            const lv = m.level ? `${m.level} ур.` : '';
+            $('[data-l="who"]').innerHTML = [m.nick ? `<b>${U.esc(m.nick)}</b>` : '<b style="color:#e5484d">ник не найден</b>', m.position ? U.esc(m.position) : '<span style="color:#f5a524">должность не найдена</span>', lv]
+                .filter(Boolean)
+                .join(' · ');
+            if (!m.nick || !m.position) $('[data-l="manual"]').hidden = false;
+        };
+        paintMe();
+        $('[data-a="edit"]').onclick = () => ($('[data-l="manual"]').hidden = !$('[data-l="manual"]').hidden);
+        scrim.querySelectorAll('[data-m]').forEach(el => {
+            el.onchange = () => {
+                Settings.patch(x => (x.reports[el.dataset.m] = el.value.trim()));
+                paintMe();
+            };
+        });
         // вкладки
         const show = k => {
             kind = k;
             Store.set('reportTab', k);
             scrim.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === k));
             scrim.querySelectorAll('[data-body]').forEach(b => (b.hidden = b.dataset.body !== k));
+            const f = scrim.querySelector(`[data-body="${k}"] textarea, [data-body="${k}"] .vd-dop-it button`);
+            if (f) setTimeout(() => f.focus(), 30);
         };
         scrim.querySelectorAll('[data-t]').forEach(b => (b.onclick = () => show(b.dataset.t)));
         show(kind);
-        // свои данные: сохраняются сразу
-        scrim.querySelectorAll('[data-m]').forEach(el => {
-            el.onchange = () => Settings.patch(x => (x.reports[el.dataset.m] = el.value.trim()));
-        });
         // работа в доп. репорте: нажал — выбрано, появляется поле уточнения
         scrim.querySelectorAll('.vd-dop-it').forEach(it => {
             const b = it.querySelector('button'),
@@ -10218,18 +10303,21 @@ const Reports = {
                 if (on) inp.focus();
             };
         });
-        // превью ссылок: не картинка — красная рамка и предупреждение
+        // превью: страницы хостингов (yapx, prnt.sc…) превращаются в картинки, не открылось — красная рамка
         const bad = new Set();
-        const warn = () => ($('[data-a="warn"]').textContent = bad.size ? `Не открывается как картинка: ${bad.size} — нужна прямая ссылка на фото (обычно оканчивается на .png / .jpg)` : '');
+        const warn = () => ($('[data-a="warn"]').textContent = bad.size ? `Не открывается как картинка: ${bad.size} — проверь ссылку` : '');
         scrim.querySelectorAll('textarea[data-k]').forEach(ta => {
-            ta.oninput = U.debounce(() => {
+            ta.oninput = U.debounce(async () => {
                 const box = $(`[data-p="${ta.dataset.k}"]`);
-                box.querySelectorAll('img').forEach(im => bad.delete(im.title));
+                box.querySelectorAll('img').forEach(im => bad.delete(im.dataset.src));
                 box.innerHTML = '';
-                this.links(ta.value).forEach(u => {
+                const list = this.links(ta.value);
+                const imgs = await this.toImages(list);
+                imgs.forEach((u, i) => {
                     const im = document.createElement('img');
                     im.referrerPolicy = 'no-referrer';
-                    im.title = u;
+                    im.title = list[i];
+                    im.dataset.src = u;
                     im.onload = () => (bad.delete(u), im.classList.remove('bad'), warn());
                     im.onerror = () => (bad.add(u), im.classList.add('bad'), warn());
                     im.src = u;
@@ -10239,21 +10327,20 @@ const Reports = {
             }, 300);
         });
         const val = k => ($(`[data-k="${k}"]`) || {}).value;
-        const go = send => {
-            scrim.querySelectorAll('[data-m]').forEach(el => el.onchange());
-            const cur = this.cfg();
-            if (!cur.nick) {
-                $('.vd-rep-me').open = true;
+        const go = async send => {
+            const m = this.me();
+            if (!m.nick) {
+                $('[data-l="manual"]').hidden = false;
                 return $('[data-m="nick"]').focus();
             }
             const v = {};
             if (kind === 'norm') {
-                v.astats = this.links(val('astats'));
-                v.proofs = this.links(val('proofs'));
+                v.astats = await this.toImages(this.links(val('astats')));
+                v.proofs = await this.toImages(this.links(val('proofs')));
                 v.date = this.today();
                 if (!v.astats.length && !v.proofs.length) return toast('Вставь ссылку на скриншот', 'err');
             } else {
-                v.proofs = this.links(val('dproofs'));
+                v.proofs = await this.toImages(this.links(val('dproofs')));
                 v.date = this.ruDate(val('day')) || this.today();
                 v.work = [...scrim.querySelectorAll('.vd-dop-it')]
                     .filter(it => it.querySelector('button').classList.contains('pri'))
@@ -10271,10 +10358,6 @@ const Reports = {
         };
         $('[data-a="ins"]').onclick = () => go(false);
         $('[data-a="send"]').onclick = () => go(true);
-        setTimeout(() => {
-            const f = need ? $('[data-m="nick"]') : $(`[data-body="${kind}"] textarea, [data-body="${kind}"] .vd-dop-it button`);
-            if (f) f.focus();
-        }, 50);
     }
 };
 
@@ -12283,6 +12366,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.16',
+        ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
     [
         '1.11.15',
         ['Норма и доп. репорт теперь прямо в поле ответа: кнопка «Норма / Доп. репорт» в панели над полем, окно с двумя вкладками, ник, уровень и должность заполняются один раз — дальше только вставить ссылки на скриншоты. Кнопки в навигации и ссылки на разделы больше не нужны']
