@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.24
+// @version      1.11.25
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.24', // подставляет build.sh из @version
+    version: '1.11.25', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -2200,8 +2200,35 @@ const Page = {
     }
 };
 
+// пункты формы по разделам (по закреплённым формам и реальным темам); раздел — по «хлебным крошкам»
+const FORM_F = {
+    me: ['Ваш Nick_Name', /(ваш|мой)[^\n]{0,14}(nick|ник)|(^|\n)\s*(\d+\s*[.)]\s*)?(nick_?\s*name|ник(нейм)?)\s*:/i],
+    adm: ['Nick_Name администратора', /(nick|ник)[^\n]{0,16}адм/i],
+    lead: ['Nick_Name лидера', /(nick|ник)[^\n]{0,16}лидер/i],
+    plr: ['Nick_Name игрока', /(nick|ник)[^\n]{0,16}(игрок|нарушител)/i],
+    date: ['Дата наказания', /дат[аы]\s/i],
+    gist: ['Суть', /суть|причин|описани|проблем|что\s+(нарушил|произошло|случилось)/i],
+    proof: ['Доказательство', /доказател|https?:\/\//i]
+};
+const FORMS = [
+    { re: /обжаловани/i, f: ['me', 'adm', 'date', 'gist', 'proof'] },
+    { re: /жалоб\S*\s+на\s+администрац/i, f: ['me', 'adm', 'date', 'gist', 'proof'] },
+    { re: /жалоб\S*\s+на\s+лидер/i, f: ['me', 'lead', 'gist', 'proof'] },
+    { re: /жалоб\S*\s+на\s+игрок/i, f: ['me', 'plr', 'gist', 'proof'] }
+];
+
 // признаки темы; strong = почти точно этот ответ
 const Analyzer = {
+    // каких пунктов формы раздела нет в тексте; null — раздел без известной формы
+    formMiss(text, numbered) {
+        const cr = Page.crumbs();
+        const form = FORMS.find(f => f.re.test(cr));
+        if (!form) return null;
+        const miss = form.f.filter(k => !FORM_F[k][1].test(text)).map(k => FORM_F[k][0]);
+        // подписи пунктов стёрты, но ответы пронумерованы («1.Nick 2.Nick 3.…») — не уверены
+        const sure = miss.length >= 2 && numbered < form.f.length - 1;
+        return { miss, sure, bare: miss.length >= 2 && !sure };
+    },
     run(packs) {
         const body = Page.firstPost();
         if (!body) return { hints: [], facts: [], tags: {}, text: '' };
@@ -2251,7 +2278,11 @@ const Analyzer = {
         if (kinds.has('complaint') && videos.length && !timecodes)
             tag('timecode', 'Есть видео, но не указаны тайм-коды (нужны, если видео > 3 мин)', true);
         const needNumbered = kinds.has('app') ? 5 : kinds.has('complaint') || kinds.has('appeal') ? 4 : 0;
-        if (needNumbered && numbered < Math.min(needNumbered, 3))
+        const fm = kinds.has('complaint') || kinds.has('appeal') ? this.formMiss(text, numbered) : null;
+        if (fm) {
+            if (fm.miss.length)
+                tag('form', fm.bare ? `Пункты пронумерованы, но без подписей формы (${fm.miss.join(', ')})` : `Нет ${fm.miss.length > 1 ? 'пунктов' : 'пункта'} формы: ${fm.miss.join(', ')}`, fm.sure);
+        } else if (needNumbered && numbered < Math.min(needNumbered, 3))
             tag('form', `Найдено пунктов формы: ${numbered} из ~${needNumbered}`, true);
         if (kinds.has('bio') && words < 200) tag('short', `Всего ${words} слов — для биографии маловато`, true);
         if (evidence && social.length)
@@ -12542,6 +12573,12 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.25',
+        [
+            'Подсказка «Не по форме» знает форму каждого раздела (жалобы на администрацию, лидеров, игроков, обжалования) и пишет, каких именно пунктов не хватает. Почти уверена — только если нет двух и больше пунктов и ответы не пронумерованы'
+        ]
     ],
     [
         '1.11.24',
