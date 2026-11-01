@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.22
+// @version      1.11.23
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.22', // подставляет build.sh из @version
+    version: '1.11.23', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -1782,6 +1782,8 @@ const Packs = {
         if (this._v) return this._v;
         const saved = Store.get('packs', null);
         this._v = Array.isArray(saved) && saved.length ? saved : this.fresh();
+        // сверка со стандартными ответами нужна только после обновления скрипта: на обычной странице не пишем ~30 КБ в хранилище
+        if (saved && saved.length && Store.get('packsSyncV', '') === BRAND.version) return this._v;
         // разделы, появившиеся в обновлении; удалённые пользователем не возвращаем
         const seen = Store.get('packsSeen', null) || this._v.map(p => p.id);
         const fresh = this.fresh().filter(p => !seen.includes(p.id) && !this._v.some(x => x.id === p.id));
@@ -1918,6 +1920,7 @@ const Packs = {
             updated++;
         }
         if (updated) Store.set('packs', this._v);
+        Store.set('packsSyncV', BRAND.version);
         return this._v;
     },
     // ответы, после которых автор должен дописать в теме: тему не закрываем
@@ -3877,7 +3880,8 @@ const Photo = {
         // фон в высоком разрешении весит больше: не влез, освобождаем место превью и пробуем ещё раз
         if (this.local('wall', v)) return true;
         this.local('wall', null);
-        this.local('thumbs', null);
+        this.local('thumbs2', null);
+        this._thumbs = {};
         if (this.local('wall', v)) return true;
         // последний шанс: кэш сгенерированного фона (он сейчас не показывается — фон фото)
         try {
@@ -3886,6 +3890,30 @@ const Photo = {
             /* хранилище недоступно */
         }
         return this.local('wall', v);
+    },
+    // превью тем: читаем из хранилища один раз за страницу, пишем пачкой (окно настроек грузит их десятками)
+    thumbs() {
+        if (!this._thumbs) {
+            // превью прошлых версий (480 px, ~1 МБ) — убираем, новые меньше
+            try {
+                localStorage.removeItem('vd.thumbs');
+            } catch {
+                /* хранилище недоступно */
+            }
+            this._thumbs = this.local('thumbs2') || {};
+        }
+        return this._thumbs;
+    },
+    saveThumbs() {
+        clearTimeout(this._thumbsT);
+        this._thumbsT = setTimeout(() => {
+            const all = this._thumbs || {};
+            Object.keys(all)
+                .sort((a, b) => all[b].t - all[a].t)
+                .slice(this.THUMBS)
+                .forEach(k => delete all[k]);
+            this.local('thumbs2', all);
+        }, 800);
     },
     remember(url, data) {
         this._mem.delete(url);
@@ -3898,21 +3926,19 @@ const Photo = {
         const mk = (thumb ? 't:' : '') + url;
         if (this._mem.has(mk)) return Promise.resolve(this._mem.get(mk));
         if (this._wait.has(mk)) return this._wait.get(mk);
-        const thumbs = thumb ? this.local('thumbs') || {} : null;
+        const thumbs = thumb ? this.thumbs() : null;
         if (thumbs && thumbs[url]) {
             this.remember(mk, thumbs[url].d);
             return Promise.resolve(thumbs[url].d);
         }
         const job = this.fetch(url)
-            .then(data => (thumb ? this.shrink(data, 480) : data))
+            .then(data => (thumb ? this.shrink(data, 320, 0.7) : data))
             .then(data => {
                 this.remember(mk, data);
                 if (thumb) {
-                    const all = this.local('thumbs') || {};
+                    const all = this.thumbs();
                     all[url] = { d: data, t: Date.now() };
-                    const keys = Object.keys(all).sort((a, b) => all[b].t - all[a].t);
-                    keys.slice(this.THUMBS).forEach(k => delete all[k]);
-                    this.local('thumbs', all);
+                    this.saveThumbs();
                 }
                 return data;
             })
@@ -3921,7 +3947,7 @@ const Photo = {
         return job;
     },
     // превью пережимаем в маленький JPEG
-    shrink(data, w) {
+    shrink(data, w, q = 0.8) {
         return new Promise(res => {
             const img = new Image();
             img.onload = () => {
@@ -3931,7 +3957,7 @@ const Photo = {
                 c.height = Math.round(img.height * k);
                 c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
                 try {
-                    res(c.toDataURL('image/jpeg', 0.8));
+                    res(c.toDataURL('image/jpeg', q));
                 } catch {
                     res(data);
                 }
@@ -6319,6 +6345,8 @@ document.addEventListener('keydown', e => {
         // окно «Кто ты на сервере?» закрыли Esc — не спрашивать заново на каждой теме
         if (!Settings.get().role && top.querySelector('[data-a="done"]')) safe(() => Access.setRole('ga'));
         top.remove();
+        // у окна свой обработчик закрытия («Что нового» запоминает версию)
+        if (top.vdOnClose) safe(top.vdOnClose);
         if (SettingsUI.scrim === top) SettingsUI.scrim = null;
     }
 });
@@ -6490,7 +6518,10 @@ class ReplyBar {
         this.blocked = s.permCheck && !this.forced && !Page.canModerate();
         if (this.blocked) {
             this.host.classList.remove('vd-docked');
-            this.root.innerHTML = `<div class="no-perm">${icon('lock', 13)}<span>Здесь нет прав модератора, панель скрыта</span><button data-a="force">Показать</button></div>`;
+            // отчёт (норма, доп. репорт) пишут как раз там, где прав модератора нет — кнопка видна и здесь
+            this.root.innerHTML = `<div class="no-perm">${icon('lock', 13)}<span>Здесь нет прав модератора, панель скрыта</span><button data-a="force">Показать</button>${Reports.allowed() ? `<button data-a="report" class="vd-rep-btn" title="Норма / доп. репорт — вставить отчёт в это поле">${icon('check', 13)} Норма / доп. репорт</button>` : ''}</div>`;
+            const rb = this.root.querySelector('[data-a="report"]');
+            if (rb) rb.onclick = () => Reports.open(this.form, undefined, this);
             this.root.querySelector('[data-a="force"]').onclick = () => {
                 this.forced = true;
                 this.render();
@@ -6595,7 +6626,7 @@ class ReplyBar {
         on('search', () => Palette.open(this));
         on('settings', () => SettingsUI.open());
         on('idea', () => SettingsUI.open('contact'));
-        on('report', () => Reports.open(this.form));
+        on('report', () => Reports.open(this.form, undefined, this));
     }
     renderHints() {
         const row = this.root.querySelector('.hints-row');
@@ -10116,22 +10147,23 @@ const Reports = {
             : [];
         const fromPage = own.length ? [...own[0].querySelectorAll('.userBanner, .message-userBanner')].map(b => b.textContent.trim()) : [];
         const clean = list => [...new Set(list.map(x => x.replace(/\s+/g, ' ').trim()).filter(x => x && !/^сервер/i.test(x)))];
-        if (fromPage.length) {
-            const list = clean(fromPage);
-            Store.set('myBanners2', { me, list, at: Date.now() });
-            return list;
-        }
+        // профиль — главный источник (на сообщениях форум может показывать не все плашки); сообщение — пока профиля нет
         const c = Store.get('myBanners2', null);
-        return c && c.me === me ? c.list : [];
+        if (c && c.me === me && c.list.length) return c.list;
+        return clean(fromPage);
     },
     // своих сообщений на странице нет — плашки берём со своей страницы профиля (раз в сутки)
     async loadBanners() {
         const me = Page.me();
         const c = Store.get('myBanners2', null);
-        if (!me || (c && c.me === me && c.list.length && Date.now() - c.at < 864e5)) return;
+        if (!me || (c && c.me === me && Date.now() - c.at < 864e5)) return;
         // ссылка в шапке ведёт на /account/ — профиль открываем по номеру пользователя из настроек форума
         const parse = html => new DOMParser().parseFromString(html, 'text/html');
-        const get = async url => (await fetch(url, { credentials: 'include' })).text();
+        const get = async url => {
+            const r = await fetch(url, { credentials: 'include' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.text();
+        };
         try {
             let url = '';
             const id = W.XF && W.XF.config && W.XF.config.userId;
@@ -10146,7 +10178,8 @@ const Reports = {
             // плашки в шапке профиля: .memberHeader-banners .userBanner (без «Сервер …»)
             const list = [...doc.querySelectorAll('.memberHeader-banners .userBanner, .memberHeader .userBanner')].map(b => b.textContent.replace(/\s+/g, ' ').trim());
             const clean = [...new Set(list.filter(x => x && !/^сервер/i.test(x)))];
-            if (clean.length) Store.set('myBanners2', { me, list: clean, at: Date.now() });
+            // и пустой список запоминаем на сутки — без плашек профиль не перечитываем при каждом открытии
+            Store.set('myBanners2', { me, list: clean, at: Date.now() });
         } catch {
             /* нет сети — возьмём введённое вручную */
         }
@@ -10230,7 +10263,9 @@ const Reports = {
             .join('\n');
     },
     // вставка в поле, где нажали кнопку; страница прокручивается к нему
-    fill(kind, form, v, send) {
+    fill(kind, form, v, send, bar) {
+        // отчёт — не ответ: статус темы не меняем и в «Моей статистике» не считаем
+        if (bar) (bar.pending = null), (bar.lastItem = null);
         Editor.insert(form, this.build(kind, v), { replace: true });
         const box = form.querySelector('.fr-box') || Editor.parts(form).ta || form;
         box.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -10241,44 +10276,60 @@ const Reports = {
     },
     // список ссылок: поле на одну ссылку с превью справа; заполнил — снизу появляется следующее
     linkList(box, onChange, max = 30) {
-        const add = () => {
-            const row = U.h(`<div class="vd-ll-row"><input class="inp" placeholder="${box.childElementCount ? 'Ещё ссылка на фото' : 'Ссылка на фото'}"><span class="vd-ll-prev"></span></div>`);
+        // проверка ссылки строки: результат применяется, только если в поле всё ещё та же ссылка
+        const check = row => {
             const inp = row.querySelector('input'),
                 prev = row.querySelector('.vd-ll-prev');
-            inp.oninput = U.debounce(async () => {
-                const u = this.links(inp.value)[0] || '';
-                row.dataset.src = '';
-                row.classList.remove('bad', 'ok');
-                prev.innerHTML = '';
-                if (u) {
-                    const [img] = await this.toImages([u]);
-                    row.dataset.src = img;
-                    const im = document.createElement('img');
-                    im.referrerPolicy = 'no-referrer';
-                    im.onload = () => (row.classList.add('ok'), onChange());
-                    im.onerror = () => (row.classList.add('bad'), onChange());
-                    im.src = img;
-                    prev.appendChild(im);
-                }
-                // последнее поле заполнено — добавить пустое; лишние пустые снизу убрать
-                const rows = [...box.children];
-                const last = rows[rows.length - 1];
-                if (last.querySelector('input').value.trim() && box.childElementCount < max) add();
-                else while (box.childElementCount > 1 && !box.children[box.childElementCount - 2].querySelector('input').value.trim()) box.lastElementChild.remove();
-                onChange();
-            }, 250);
+            const u = this.links(inp.value)[0] || '';
+            if (row._u === u && row._p) return row._p;
+            row._u = u;
+            row.dataset.src = '';
+            row.classList.remove('bad', 'ok');
+            prev.innerHTML = '';
+            row._p = !u
+                ? Promise.resolve()
+                : this.toImages([u]).then(([img]) => {
+                      if (row._u !== u) return;
+                      row.dataset.src = img;
+                      const im = document.createElement('img');
+                      im.referrerPolicy = 'no-referrer';
+                      im.onload = () => (row.classList.add('ok'), onChange());
+                      im.onerror = () => (row.classList.add('bad'), onChange());
+                      im.src = img;
+                      prev.appendChild(im);
+                  });
+            return row._p;
+        };
+        const empty = r => !r.querySelector('input').value.trim();
+        const tidy = () => {
+            // последнее поле заполнено — добавить пустое; лишние пустые в конце убрать (заполненные не трогаем)
+            if (!empty(box.lastElementChild) && box.childElementCount < max) add();
+            while (box.childElementCount > 1 && empty(box.lastElementChild) && empty(box.children[box.childElementCount - 2])) box.lastElementChild.remove();
+            onChange();
+        };
+        const add = () => {
+            const row = U.h(`<div class="vd-ll-row"><input class="inp" placeholder="${box.childElementCount ? 'Ещё ссылка на фото' : 'Ссылка на фото'}"><span class="vd-ll-prev"></span></div>`);
+            const run = U.debounce(() => check(row).then(onChange), 250);
+            row.querySelector('input').oninput = () => {
+                tidy();
+                run();
+            };
             box.appendChild(row);
-            return inp;
         };
         add();
         return {
-            values: () => [...box.children].map(r => r.dataset.src).filter(Boolean),
+            // перед вставкой дожидаемся проверки всех ссылок (нажали «Отправить» сразу после вставки — ничего не теряется)
+            values: async () => {
+                const rows = [...box.children];
+                await Promise.all(rows.map(check));
+                return rows.map(r => r.dataset.src || (r._u && r._u) || '').filter(Boolean);
+            },
             bad: () => [...box.children].filter(r => r.classList.contains('bad')).length,
             focus: () => box.querySelector('input').focus()
         };
     },
     // окно: вкладки «Норма» / «Доп. репорт», сверху — кто ты (с форума), ниже только ссылки на фото
-    open(form, kind) {
+    open(form, kind, bar) {
         kind = REPORT_KINDS[kind] ? kind : Store.get('reportTab', 'norm');
         const iso = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
         const c = this.cfg();
@@ -10344,10 +10395,15 @@ const Reports = {
         });
         // списки ссылок
         const lists = {};
+        // битые ссылки считаем только в видимых полях (открытая вкладка, выбранные виды работы)
         const warn = () => {
-            const n = Object.values(lists).reduce((a, l) => a + l.bad(), 0);
+            const vis = Object.entries(lists).filter(([k]) => {
+                const box = $(`[data-ll="${k}"]`);
+                return box && !box.closest('[hidden]');
+            });
+            const n = vis.reduce((a, [, l]) => a + l.bad(), 0);
             $('[data-a="warn"]').textContent = n ? `Не открывается как картинка: ${n} — проверь ссылку` : '';
-            const k = lists.mp.values().length;
+            const k = $('[data-ll="mp"]').querySelectorAll('.vd-ll-row[data-src]:not([data-src=""])').length;
             $('[data-cnt="mp"]').textContent = k ? `· МП: ${k}` : '';
         };
         // скриншот /astats — один; остальное — сколько угодно
@@ -10376,7 +10432,7 @@ const Reports = {
                 if (on) (+b.dataset.w === 0 ? lists.mp : lists.stat).focus();
             };
         });
-        const go = send => {
+        const go = async send => {
             const m = this.me();
             if (!m.nick) {
                 $('[data-l="manual"]').hidden = false;
@@ -10385,8 +10441,8 @@ const Reports = {
             const v = {};
             let bad = 0;
             if (kind === 'norm') {
-                v.astats = lists.astats.values();
-                v.proofs = lists.proofs.values();
+                v.astats = await lists.astats.values();
+                v.proofs = await lists.proofs.values();
                 v.date = this.today();
                 bad = lists.astats.bad() + lists.proofs.bad();
                 if (!v.astats.length && !v.proofs.length) return toast('Вставь ссылку на скриншот', 'err');
@@ -10396,15 +10452,15 @@ const Reports = {
                 if (!on.length) return toast('Отметь, какая работа была проделана', 'err');
                 const stat = on.filter(i => i > 0).map(i => DOP_WORK[i]);
                 v.works = [];
-                if (on.includes(0)) v.works.push({ name: 'МП', imgs: lists.mp.values(), count: true });
-                if (stat.length) v.works.push({ name: stat.join(', '), names: stat, imgs: lists.stat.values() });
+                if (on.includes(0)) v.works.push({ name: 'МП', imgs: await lists.mp.values(), count: true });
+                if (stat.length) v.works.push({ name: stat.join(', '), names: stat, imgs: await lists.stat.values() });
                 const empty = v.works.find(w => !w.imgs.length);
                 if (empty) return toast(`${empty.name}: вставь ссылку на фото`, 'err');
-                bad = lists.mp.bad() + lists.stat.bad();
+                bad = (on.includes(0) ? lists.mp.bad() : 0) + (stat.length ? lists.stat.bad() : 0);
             }
             if (send && bad && !confirm('Часть ссылок не открывается как картинка. Всё равно отправить?')) return;
             close();
-            this.fill(kind, form, v, send);
+            this.fill(kind, form, v, send, bar);
         };
         $('[data-a="ins"]').onclick = () => go(false);
         $('[data-a="send"]').onclick = () => go(true);
@@ -12421,6 +12477,14 @@ const CHANGES = [
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
     ],
     [
+        '1.11.23',
+        [
+            'Норма / доп. репорт: ссылка, вставленная прямо перед «Отправить», больше не теряется; отправка отчёта не меняет статус темы и не попадает в «Мою статистику»; кнопка видна и там, где нет прав модератора',
+            'Быстрее: служебная сверка шаблонов — только после обновления скрипта (раньше ~30 КБ записей на каждой странице), тема не применяется повторно при загрузке, превью тем в 4 раза легче (было ~1 МБ в хранилище)',
+            '«Что нового», закрытое клавишей Esc, больше не появляется снова'
+        ]
+    ],
+    [
         '1.11.20',
         ['Доп. репорт: «МП» — поле для фото, вставил — снизу сразу следующее (одна МП — одно фото, количество считается само); «Онлайн» и «Реакция» — одно общее фото статистики. В норме доказательства так же — по ссылке в строке, с превью']
     ],
@@ -12740,6 +12804,7 @@ const WhatsNew = {
             scrim.remove();
             if (onClose) onClose();
         };
+        scrim.vdOnClose = onClose;
         scrim.querySelector('[data-a="x"]').onclick = close;
         scrim.querySelector('[data-a="ok"]').onclick = close;
         scrim.addEventListener('mousedown', e => e.target === scrim && close());
@@ -12914,10 +12979,15 @@ const Theme = {
             this.style = document.createElement('style');
             this.style.id = 'vd-theme';
         }
-        this.fade();
         const parent = document.head || document.documentElement;
         if (this.style.parentNode !== parent) parent.appendChild(this.style);
-        this.style.textContent = IS_LOGS ? logsCss(s) : forumCss(s);
+        // повторный вызов с той же темой (загрузка страницы, сохранение настроек без изменений темы) —
+        // таблицу стилей не переписываем: иначе пересчёт стилей всей страницы и плавный переход на 1 с
+        const css = IS_LOGS ? logsCss(s) : forumCss(s);
+        if (this.style.textContent !== css) {
+            this.fade();
+            this.style.textContent = css;
+        }
         const put = () => {
             if (!document.body) return;
             if (!this.wall || !this.wall.isConnected) {
@@ -13189,6 +13259,8 @@ function boot() {
         safe(() => QNav.mount());
         Bus.on('settings', () => safe(() => QNav.mount()));
         safe(() => Stuck.start());
+        // превью тем прошлых версий (~1 МБ в хранилище форума) больше не нужны
+        safe(() => localStorage.getItem('vd.thumbs') && localStorage.removeItem('vd.thumbs'));
         // не срочное — когда браузер свободен, чтобы страница стала отзывчивой быстрее
         const idle = window.requestIdleCallback || (f => setTimeout(f, 200));
         idle(
