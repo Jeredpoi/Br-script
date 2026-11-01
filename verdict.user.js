@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.12
+// @version      1.11.13
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.12', // подставляет build.sh из @version
+    version: '1.11.13', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10120,10 +10120,16 @@ const Reports = {
     ruDate(iso) {
         return iso ? iso.split('-').reverse().join('.') : '';
     },
-    // раздел → страница создания темы, тема → сама тема (форма ответа внизу)
+    // раздел → страница создания темы, тема → сама тема (форма ответа внизу).
+    // из ссылки на страницу темы, сообщение (#post-…, /post-…, /page-2) или с параметрами берём саму тему / раздел
     target(url) {
-        const u = new URL(url, location.origin);
-        if (/\/forums\/[^/]+\/?$/.test(u.pathname)) u.pathname = u.pathname.replace(/\/?$/, '/') + 'post-thread';
+        const u = new URL(String(url).trim(), location.origin);
+        u.hash = '';
+        u.search = '';
+        const th = u.pathname.match(/^(.*?\/threads\/[^/]+)/);
+        const fo = u.pathname.match(/^(.*?\/forums\/[^/]+)/);
+        if (th) u.pathname = th[1] + '/';
+        else if (fo) u.pathname = fo[1] + '/post-thread';
         return u.href;
     },
     form() {
@@ -10154,7 +10160,11 @@ const Reports = {
                 return this.dialog(p.kind, f);
             }
             if (++n < 40) setTimeout(tick, 250);
-            else Store.set(this.PENDING, null);
+            else {
+                Store.set(this.PENDING, null);
+                // страница без формы: ссылка не та, тема закрыта или нет прав писать
+                toast(`${REPORT_KINDS[p.kind].name}: на этой странице нет формы для отчёта — проверь ссылку в настройках («Должность»)`, 'err');
+            }
         };
         tick();
     },
@@ -12303,6 +12313,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.13',
+        ['Норма и доп. репорт: ссылку на раздел или тему можно вставить любую (на страницу, сообщение, с параметрами) — скрипт сам открывает нужную страницу; если формы для отчёта нет, говорит об этом']
+    ],
     [
         '1.11.12',
         ['Доп. репорт: уровень админ-прав выбирается из списка (1 — младший модератор, 2 — модератор, 3 — старший модератор, 4 — администратор, 5 — старший администратор), без выбора — по должности в скрипте']
