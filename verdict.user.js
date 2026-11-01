@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.26
+// @version      1.11.27
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -31,6 +31,8 @@
 // @connect      imgbox.com
 // @connect      radikal.cloud
 // @connect      fastpic.org
+// @connect      cloud-api.yandex.net
+// @connect      cloud.mail.ru
 // @connect      *
 // @run-at       document-start
 // @noframes
@@ -55,7 +57,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.26', // подставляет build.sh из @version
+    version: '1.11.27', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10254,6 +10256,17 @@ const Reports = {
         const out = [];
         for (const u of list) {
             let r = null;
+            // Яндекс Диск, Облако Mail, Dropbox отдают временные ссылки на файл — в отчёт идёт исходная
+            let h = '';
+            try {
+                h = new URL(u).hostname.toLowerCase();
+            } catch {
+                /* не адрес */
+            }
+            if (Lightbox.YADISK.test(h) || /(^|\.)(cloud\.mail\.ru|dropbox\.com)$/.test(h)) {
+                out.push(u);
+                continue;
+            }
             try {
                 r = await Lightbox.resolve(u, true);
             } catch {
@@ -11352,7 +11365,7 @@ const Lightbox = {
     // встроенный плеер сайта (YouTube, Rutube, VK, Google Диск): ссылка на его embed-страницу
     EMB: 'vdembed:',
     // страницы хостингов: картинку берём из og:image
-    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|ibb\.co\.com|kili\.ru|1drv\.ms|onedrive\.live\.com|videovssylku\.ru|bedrive\.ru|screenapp\.io|imgfy\.ru|fotora\.ru|radikal\.cloud|radikal\.ru|fastpic\.org|fastpic\.ru|joxi\.ru|joxi\.net|imageban\.ru|ipic\.su|funkyimg\.com|pixs\.ru|savepice\.ru|imgsh\.net|vfl\.ru|picshare\.ru|lightshot\.com|disk\.yandex\.ru|disk\.yandex\.com|yadi\.sk|cloud\.mail\.ru|photos\.app\.goo\.gl|ibb\.org|wertigo\.ru)$/i,
+    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|ibb\.co\.com|kili\.ru|1drv\.ms|onedrive\.live\.com|videovssylku\.ru|bedrive\.ru|screenapp\.io|imgfy\.ru|fotora\.ru|pixhost\.to|imagetwist\.com|freeimage\.host|imgchest\.com|lensdump\.com|pasteboard\.co|snipboard\.io|imgpile\.com|imagebam\.com|sendvid\.com|streamja\.com|plvideo\.ru|dzen\.ru|photos\.google\.com|imgbb\.ru|imgdb\.ru|youpic\.su|pic\.re|ltdfoto\.ru|radikal\.cloud|radikal\.ru|fastpic\.org|fastpic\.ru|joxi\.ru|joxi\.net|imageban\.ru|ipic\.su|funkyimg\.com|pixs\.ru|savepice\.ru|imgsh\.net|vfl\.ru|picshare\.ru|lightshot\.com|disk\.yandex\.ru|disk\.yandex\.com|yadi\.sk|cloud\.mail\.ru|photos\.app\.goo\.gl|ibb\.org|wertigo\.ru)$/i,
     // точно не фото — такие ссылки не проверяем
     NOT: /(^|\.)(vk\.com|vk\.ru|vkvideo\.ru|youtube\.com|youtu\.be|t\.me|telegram\.me|discord\.gg|twitch\.tv|tiktok\.com|ok\.ru|rutube\.ru|wikipedia\.org|blackrussia\.online|google\.com|github\.com|play\.google\.com|apps\.apple\.com)$/i,
     // ссылки в постах: обычный текст, карточки ссылок и разметка тем, где пост не в .bbWrapper
@@ -11454,9 +11467,21 @@ const Lightbox = {
             if (r === u.href) return null;
             u = new URL(r);
         }
+        const host = u.hostname.toLowerCase();
+        // Яндекс Диск и Облако Mail: файл берём через их открытый API (страница сайта — только запасной путь)
+        if (this.YADISK.test(host) && /^\/(i|d)\/[^/]+/.test(u.pathname)) return fetch ? this.yadisk(u) : true;
+        if (host === 'cloud.mail.ru' && /^\/public\/[^/]+\/./.test(u.pathname)) return fetch ? this.mailru(u) : true;
+        // Dropbox: ?dl=0 — страница, ?raw=1 — сам файл
+        if (/(^|\.)dropbox\.com$/.test(host) && /\.[a-z0-9]{3,4}$/i.test(u.pathname)) {
+            u.searchParams.delete('dl');
+            u.searchParams.set('raw', '1');
+            if (this.IMG.test(u.pathname)) return u.href;
+            if (this.VID_RE.test(u.pathname)) return this.VID + u.href;
+        }
+        // imgur .gifv — это mp4
+        if (host === 'i.imgur.com' && /\.gifv$/i.test(u.pathname)) return this.VID + u.href.replace(/\.gifv(\?|$)/i, '.mp4$1');
         if (this.IMG.test(u.pathname)) return u.href;
         if (this.VID_RE.test(u.pathname)) return this.VID + u.href;
-        const host = u.hostname.toLowerCase();
         const emb = this.embed(u);
         if (emb) return this.EMB + emb;
         // ВК и Telegram-CDN с картинками
@@ -11501,10 +11526,94 @@ const Lightbox = {
             const m = raw.match(/(?:video|clip)(-?\d+)_(\d+)/);
             return m ? `https://vk.com/video_ext.php?oid=${m[1]}&id=${m[2]}&hd=2&autoplay=1` : null;
         }
+        // Vimeo, Dailymotion, Одноклассники, TikTok, Coub, Streamable, Twitch
+        let m;
+        if (host === 'vimeo.com' && (m = u.pathname.match(/^\/(?:video\/)?(\d{5,})(?:\/([0-9a-f]{6,}))?/)))
+            return `https://player.vimeo.com/video/${m[1]}?autoplay=1${m[2] ? '&h=' + m[2] : ''}`;
+        if (host === 'player.vimeo.com' && /^\/video\/\d+/.test(u.pathname)) return u.href;
+        if ((host === 'dailymotion.com' && (m = u.pathname.match(/^\/video\/([a-z0-9]+)/i))) || (host === 'dai.ly' && (m = u.pathname.match(/^\/([a-z0-9]+)/i))))
+            return `https://www.dailymotion.com/embed/video/${m[1]}?autoplay=1`;
+        if (/^(ok\.ru|odnoklassniki\.ru)$/.test(host) && (m = u.pathname.match(/^\/(?:video|videoembed|live)\/(\d+)/))) return `https://ok.ru/videoembed/${m[1]}?autoplay=1`;
+        if (host === 'tiktok.com' && (m = u.pathname.match(/\/video\/(\d{8,})/))) return `https://www.tiktok.com/embed/v2/${m[1]}#tall`;
+        if (host === 'coub.com' && (m = u.pathname.match(/^\/(?:view|embed)\/([\w]+)/))) return `https://coub.com/embed/${m[1]}?autostart=true`;
+        if (host === 'streamable.com' && (m = u.pathname.match(/^\/(?:e\/)?([a-z0-9]{4,})$/i))) return `https://streamable.com/e/${m[1]}?autoplay=1`;
+        const par = '&parent=' + location.hostname;
+        if (host === 'clips.twitch.tv' && (m = u.pathname.match(/^\/([\w-]{6,})/))) return `https://clips.twitch.tv/embed?clip=${m[1]}${par}`;
+        if (host === 'twitch.tv' && (m = u.pathname.match(/^\/[\w]+\/clip\/([\w-]{6,})/))) return `https://clips.twitch.tv/embed?clip=${m[1]}${par}`;
+        if (host === 'twitch.tv' && (m = u.pathname.match(/^\/videos\/(\d+)/))) return `https://player.twitch.tv/?video=${m[1]}${par}`;
         // Google Диск: свой просмотрщик показывает и фото, и видео
         const gd = host === 'drive.google.com' && (u.pathname.match(/\/file\/d\/([\w-]{10,})/) || (u.pathname === '/open' && [0, u.searchParams.get('id')]));
         if (gd && gd[1]) return `https://drive.google.com/file/d/${gd[1]}/preview`;
         return null;
+    },
+    YADISK: /^(disk\.yandex\.[a-z]+|disk\.360\.yandex\.[a-z]+|yadi\.sk)$/,
+    // запрос JSON через расширение (у сайтов нет CORS для форума)
+    gmJson(url) {
+        return new Promise(resolve => {
+            if (typeof GM_xmlhttpRequest !== 'function') return resolve(null);
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                timeout: 10000,
+                headers: { Accept: 'application/json' },
+                onload: r => {
+                    try {
+                        resolve(r.status >= 200 && r.status < 300 ? JSON.parse(r.responseText) : null);
+                    } catch {
+                        resolve(null);
+                    }
+                },
+                onerror: () => resolve(null),
+                ontimeout: () => resolve(null)
+            });
+        });
+    },
+    // Яндекс Диск: публичная ссылка → файл (фото или видео); в папке — первый файл с фото/видео
+    yadisk(u) {
+        const key = 'ya:' + u.href;
+        if (this.cache.has(key)) return this.cache.get(key);
+        const p = (async () => {
+            const m = u.pathname.match(/^\/(i|d)\/([^/]+)(\/.*)?$/);
+            const pk = `https://disk.yandex.ru/${m[1]}/${m[2]}`;
+            const path = m[3] ? decodeURIComponent(m[3]) : '';
+            const api = `https://cloud-api.yandex.net/v1/disk/public/resources?public_key=${encodeURIComponent(pk)}${path ? '&path=' + encodeURIComponent(path) : ''}&limit=200&preview_size=XXL`;
+            const d = await this.gmJson(api);
+            const pick = x => {
+                if (!x || x.type !== 'file') return null;
+                const mt = String(x.media_type || ''),
+                    mime = String(x.mime_type || '');
+                if (mt === 'video' || /^video\//.test(mime)) return x.file ? this.VID + x.file : this.VID;
+                if (mt === 'image' || /^image\//.test(mime)) return x.file || x.preview || null;
+                return null;
+            };
+            let r = null;
+            if (d && d.type === 'file') r = pick(d);
+            else if (d && d._embedded && Array.isArray(d._embedded.items)) for (const x of d._embedded.items) if ((r = pick(x))) break;
+            // API не ответил — пробуем страницу сайта
+            return r || this.fromPage(u.href);
+        })();
+        this.cache.set(key, p);
+        return p;
+    },
+    // Облако Mail: адрес раздачи файлов + путь публичной ссылки; что это — по расширению имени
+    mailru(u) {
+        const key = 'mr:' + u.href;
+        if (this.cache.has(key)) return this.cache.get(key);
+        const p = (async () => {
+            const weblink = u.pathname.replace(/^\/public\//, '').replace(/\/$/, '');
+            const d = await this.gmJson('https://cloud.mail.ru/api/v2/dispatcher');
+            const base = d && d.body && d.body.weblink_get && d.body.weblink_get[0] && d.body.weblink_get[0].url;
+            if (base) {
+                const f = base.replace(/\/$/, '') + '/' + weblink;
+                if (this.VID_RE.test(weblink)) return this.VID + f;
+                if (this.IMG.test(weblink)) return f;
+                const pr = await this.probe(f);
+                if (pr) return pr;
+            }
+            return this.fromPage(u.href);
+        })();
+        this.cache.set(key, p);
+        return p;
     },
     fromPage(url) {
         if (this.cache.has(url)) return this.cache.get(url);
@@ -12573,6 +12682,15 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.27',
+        [
+            'Яндекс Диск: фото и видео открываются прямо в окне просмотра (через открытый API Диска), в том числе из папки — первый файл с фото или видео',
+            'Облако Mail: файлы по публичной ссылке открываются в окне; Dropbox — сам файл вместо страницы; imgur .gifv — как видео',
+            'Встроенный плеер ещё для Vimeo, Dailymotion, Одноклассников, TikTok, Coub, Streamable и клипов/записей Twitch',
+            'Новые фотохостинги: pixhost, imagetwist, freeimage.host, imgchest, lensdump, pasteboard, snipboard, imgpile, imagebam, Google Фото, Дзен, sendvid и другие'
+        ]
     ],
     [
         '1.11.26',
