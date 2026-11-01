@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.21
+// @version      1.11.22
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.21', // подставляет build.sh из @version
+    version: '1.11.22', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -13105,12 +13105,18 @@ const Stuck = {
 };
 
 // шаг запуска отдельно от остальных: ошибка в одном не выключает весь скрипт
+// замер загрузки: сколько заняла каждая часть (для консольной проверки скорости, W.__vdPerf)
+const VD_PERF = (W.__vdPerf = { t0: performance.now(), steps: [], errors: [] });
 function safe(fn) {
+    const t = performance.now();
     try {
         fn();
     } catch (err) {
         console.warn('VERDICT:', err);
+        if (VD_PERF.errors.length < 30) VD_PERF.errors.push(String((err && err.message) || err).slice(0, 200));
     }
+    const ms = performance.now() - t;
+    if (ms >= 1 && VD_PERF.steps.length < 200) VD_PERF.steps.push([fn.toString().replace(/\s+/g, ' ').slice(0, 70), Math.round(ms * 10) / 10]);
 }
 
 function boot() {
