@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.23
+// @version      1.11.24
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.23', // подставляет build.sh из @version
+    version: '1.11.24', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10228,7 +10228,7 @@ const Reports = {
             } catch {
                 r = null;
             }
-            out.push(typeof r === 'string' && r && !r.startsWith(Lightbox.VID) ? r : u);
+            out.push(typeof r === 'string' && r && !r.startsWith(Lightbox.VID) && !r.startsWith(Lightbox.EMB) ? r : u);
         }
         return out;
     },
@@ -11318,8 +11318,10 @@ const Lightbox = {
     // видео: прямой файл проигрываем в окне просмотра, а не показываем его превью как фото
     VID_RE: /\.(mp4|webm|mov|m4v|ogv)(\?[^#]*)?(#.*)?$/i,
     VID: 'vdvideo:',
+    // встроенный плеер сайта (YouTube, Rutube, VK, Google Диск): ссылка на его embed-страницу
+    EMB: 'vdembed:',
     // страницы хостингов: картинку берём из og:image
-    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|radikal\.cloud|radikal\.ru|fastpic\.org|fastpic\.ru|joxi\.ru|joxi\.net|imageban\.ru|ipic\.su|funkyimg\.com|pixs\.ru|savepice\.ru|imgsh\.net|vfl\.ru|picshare\.ru|lightshot\.com|disk\.yandex\.ru|disk\.yandex\.com|yadi\.sk|cloud\.mail\.ru|photos\.app\.goo\.gl|ibb\.org|wertigo\.ru)$/i,
+    PAGES: /^(?:www\.)?(prnt\.sc|prntscr\.com|ibb\.co|imgbb\.com|postimg\.cc|postimages\.org|yapx\.ru|imgur\.com|skr\.sh|gyazo\.com|iimg\.su|imgbox\.com|ibb\.co\.com|kili\.ru|1drv\.ms|onedrive\.live\.com|videovssylku\.ru|bedrive\.ru|screenapp\.io|imgfy\.ru|radikal\.cloud|radikal\.ru|fastpic\.org|fastpic\.ru|joxi\.ru|joxi\.net|imageban\.ru|ipic\.su|funkyimg\.com|pixs\.ru|savepice\.ru|imgsh\.net|vfl\.ru|picshare\.ru|lightshot\.com|disk\.yandex\.ru|disk\.yandex\.com|yadi\.sk|cloud\.mail\.ru|photos\.app\.goo\.gl|ibb\.org|wertigo\.ru)$/i,
     // точно не фото — такие ссылки не проверяем
     NOT: /(^|\.)(vk\.com|vk\.ru|vkvideo\.ru|youtube\.com|youtu\.be|t\.me|telegram\.me|discord\.gg|twitch\.tv|tiktok\.com|ok\.ru|rutube\.ru|wikipedia\.org|blackrussia\.online|google\.com|github\.com|play\.google\.com|apps\.apple\.com)$/i,
     // ссылки в постах: обычный текст, карточки ссылок и разметка тем, где пост не в .bbWrapper
@@ -11424,9 +11426,8 @@ const Lightbox = {
         if (this.IMG.test(u.pathname)) return u.href;
         if (this.VID_RE.test(u.pathname)) return this.VID + u.href;
         const host = u.hostname.toLowerCase();
-        // Google Диск: превью файла
-        const gd = host === 'drive.google.com' && u.pathname.match(/\/file\/d\/([\w-]{10,})/);
-        if (gd) return `https://drive.google.com/thumbnail?id=${gd[1]}&sz=w2400`;
+        const emb = this.embed(u);
+        if (emb) return this.EMB + emb;
         // ВК и Telegram-CDN с картинками
         if (/(^|\.)userapi\.com$|(^|\.)vkuserphoto\.ru$|(^|\.)telesco\.pe$/.test(host)) return u.href;
         // imgur.com/ID — картинка лежит на i.imgur.com (альбомы /a/ и /gallery/ — через страницу)
@@ -11435,6 +11436,43 @@ const Lightbox = {
         if (host === 'i.imgur.com' || /(^|\.)(discordapp|discord)\.(com|net)$/.test(host) && /\/attachments\//.test(u.pathname))
             return u.href;
         if (this.PAGES.test(host) && u.pathname.length > 1) return fetch ? this.fromPage(u.href) : true;
+        return null;
+    },
+    // видео на YouTube / Rutube / VK / Google Диске: адрес их встроенного плеера (без запросов)
+    embed(u) {
+        const host = u.hostname.toLowerCase().replace(/^(www|m)\./, '');
+        // время из ссылки: t=90, t=1m30s, start=90
+        const sec = v => {
+            if (!v) return 0;
+            if (/^\d+$/.test(v)) return +v;
+            const m = v.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/);
+            return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0;
+        };
+        if (host === 'youtube.com' || host === 'youtu.be' || host === 'music.youtube.com') {
+            let id = '',
+                tall = false;
+            if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+            else if (u.pathname === '/watch') id = u.searchParams.get('v') || '';
+            else {
+                const m = u.pathname.match(/^\/(shorts|live|embed)\/([\w-]{6,})/);
+                if (m) (id = m[2]), (tall = m[1] === 'shorts');
+            }
+            if (!/^[\w-]{6,}$/.test(id)) return null;
+            const t = sec(u.searchParams.get('t') || u.searchParams.get('start'));
+            return `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0${t ? '&start=' + t : ''}${tall ? '#tall' : ''}`;
+        }
+        if (host === 'rutube.ru') {
+            const m = u.pathname.match(/^\/(?:video|shorts|play\/embed)\/([0-9a-f]{20,})/i);
+            return m ? `https://rutube.ru/play/embed/${m[1]}${u.searchParams.get('t') ? '?t=' + sec(u.searchParams.get('t')) : ''}` : null;
+        }
+        if (/^(vk\.com|vk\.ru|vkvideo\.ru)$/.test(host)) {
+            const raw = (u.searchParams.get('z') || '') + ' ' + u.pathname;
+            const m = raw.match(/(?:video|clip)(-?\d+)_(\d+)/);
+            return m ? `https://vk.com/video_ext.php?oid=${m[1]}&id=${m[2]}&hd=2&autoplay=1` : null;
+        }
+        // Google Диск: свой просмотрщик показывает и фото, и видео
+        const gd = host === 'drive.google.com' && (u.pathname.match(/\/file\/d\/([\w-]{10,})/) || (u.pathname === '/open' && [0, u.searchParams.get('id')]));
+        if (gd && gd[1]) return `https://drive.google.com/file/d/${gd[1]}/preview`;
         return null;
     },
     fromPage(url) {
@@ -11627,6 +11665,10 @@ const Lightbox = {
             img,.ink{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;will-change:transform}
             img{-webkit-user-drag:none;box-shadow:0 18px 60px rgba(0,0,0,.6);border-radius:6px;transition:opacity .15s}
             .ink{pointer-events:none;overflow:visible}
+            .embbox{position:absolute;inset:0;pointer-events:none;z-index:2}
+            .embbox .emb{pointer-events:auto;border:0;width:min(calc(100vw - 120px),calc((100vh - 170px) * 16 / 9));aspect-ratio:16/9;max-height:none}
+            .embbox .emb.tall{width:min(calc(100vw - 120px),calc((100vh - 170px) * 9 / 16));aspect-ratio:9/16}
+            .embopen{pointer-events:auto;position:absolute;left:50%;bottom:22px;transform:translateX(-50%);padding:8px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(20,20,26,.85);color:#fff;font:600 13px system-ui;cursor:pointer}
             .vid{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:calc(100vw - 120px);max-height:calc(100vh - 150px);
                 border-radius:8px;box-shadow:0 18px 60px rgba(0,0,0,.6);background:#000;z-index:2;cursor:default}
             .snap img,.snap .ink{transition:transform .22s cubic-bezier(.2,.8,.2,1),opacity .15s}
@@ -12046,6 +12088,7 @@ const Lightbox = {
         this.unvideo();
         if (!src) return this.fail(href);
         if (src.startsWith(this.VID)) return this.video(src.slice(this.VID.length), href, token);
+        if (src.startsWith(this.EMB)) return this.player(src.slice(this.EMB.length), href, token);
         this.$('.tools').style.display = this.$('.hint').style.display = '';
         this.src = src;
         this.img.onload = () => {
@@ -12064,7 +12107,7 @@ const Lightbox = {
             const u = this.urls[(k + n) % n];
             if (n > 1 && u)
                 Promise.resolve(this.resolve(u)).then(s => {
-                    if (s && !String(s).startsWith(this.VID)) new Image().src = s;
+                    if (s && !String(s).startsWith(this.VID) && !String(s).startsWith(this.EMB)) new Image().src = s;
                 });
         });
     },
@@ -12106,12 +12149,36 @@ const Lightbox = {
         this.$('.stage').appendChild(v);
         this.vid = v;
     },
+    // плеер сайта во фрейме; если сайт не даёт встроить — кнопка «Открыть на сайте» всегда под рукой
+    player(url, href, token) {
+        const msg = this.$('.msg');
+        const tall = url.endsWith('#tall');
+        const f = document.createElement('iframe');
+        f.className = 'vid emb' + (tall ? ' tall' : '');
+        f.src = url.replace(/#tall$/, '');
+        f.allow = 'autoplay; fullscreen; encrypted-media; picture-in-picture';
+        f.allowFullscreen = true;
+        f.referrerPolicy = 'strict-origin-when-cross-origin';
+        f.onload = () => token === this.token && (msg.style.display = 'none');
+        const open = document.createElement('button');
+        open.className = 'embopen';
+        open.textContent = 'Открыть на сайте';
+        open.onclick = () => window.open(href, '_blank', 'noopener');
+        this.src = href;
+        this.$('.tools').style.display = this.$('.hint').style.display = 'none';
+        this.$('.zoom').textContent = '';
+        const box = document.createElement('div');
+        box.className = 'embbox';
+        box.append(f, open);
+        this.$('.stage').appendChild(box);
+        this.vid = box;
+    },
     unvideo() {
         if (!this.vid) return;
         try {
-            this.vid.pause();
+            if (this.vid.pause) this.vid.pause();
             this.vid.removeAttribute('src');
-            this.vid.load();
+            if (this.vid.load) this.vid.load();
         } catch {
             /* ignore */
         }
@@ -12475,6 +12542,13 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.24',
+        [
+            'Просмотр доказательств: видео с YouTube (и Shorts, со временем из ссылки), Rutube, VK Видео и Google Диска открываются прямо в окне — встроенным плеером, рядом кнопка «Открыть на сайте»',
+            'Новые сайты в просмотре: videovssylku.ru, ibb.co.com, kili.ru, OneDrive, bedrive.ru, screenapp.io, imgfy.ru'
+        ]
     ],
     [
         '1.11.23',
