@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.11
+// @version      1.11.12
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.11', // подставляет build.sh из @version
+    version: '1.11.12', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9555,7 +9555,12 @@ const SettingsUI = {
             box.appendChild(this.row(title, sub, inp));
         };
         field('nick', 'Ник в игре', 'Подставляется в отчёт', 'Nick_Name');
-        field('level', 'Уровень админ-прав', 'Для доп. репорта', '1');
+        const lv = this.select(
+            Object.assign(Object.fromEntries(Object.entries(ADMIN_LEVELS).map(([k, v]) => [k, `${k} — ${v}`])), { '': 'Не выбран (по должности)' }),
+            ADMIN_LEVELS[r.level] ? r.level : '',
+            v => Settings.patch(x => (x.reports.level = v))
+        );
+        box.appendChild(this.row('Уровень админ-прав', 'Для доп. репорта: в отчёт пишется число', lv));
         field('position', 'Полная должность', 'Как писать в отчёте', 'Модератор, следящий за агентами поддержки');
         field('normUrl', 'Раздел нормы', 'Ссылка на раздел (новая тема) или тему (ответ)', 'https://forum.blackrussia.online/forums/…');
         field('dopUrl', 'Раздел доп. репорта', 'Ссылка на раздел или тему', 'https://forum.blackrussia.online/forums/…');
@@ -10091,10 +10096,18 @@ const DOP_WORK = [
     ['Онлайн', 'сколько, напр. 3 ч'],
     ['Реакция', 'на что / сколько']
 ];
+// уровни админ-прав (в отчёте пишется число)
+const ADMIN_LEVELS = { 1: 'Младший модератор', 2: 'Модератор', 3: 'Старший модератор', 4: 'Администратор', 5: 'Старший администратор' };
 const Reports = {
     PENDING: 'reportPending',
     cfg() {
         return Settings.get().reports;
+    },
+    // уровень: выбранный в настройках, иначе по должности в скрипте
+    level() {
+        const l = this.cfg().level;
+        if (ADMIN_LEVELS[l]) return l;
+        return { jmod: '1', admin: '4' }[Settings.get().role] || '';
     },
     // кураторам и главной администрации отчёты не нужны
     allowed() {
@@ -10172,7 +10185,7 @@ const Reports = {
                   ]
                 : [
                       ['Никнейм', c.nick],
-                      ['Уровень прав', c.level],
+                      ['Уровень прав', this.level()],
                       ['Должность', c.position],
                       ['За какой день подаётся отчёт', v.date],
                       ['Какая работа была проделана', v.work],
@@ -10201,7 +10214,7 @@ const Reports = {
         const scrim = Layer.add(
             U.h(`<div class="scrim"><div class="modal sm" style="width:min(620px,100%)">
             <div class="m-head"><span class="vic" style="--c:var(--acc);width:34px;height:34px;border-radius:10px">${icon('check', 16)}</span>
-              <div><div class="m-title">${REPORT_KINDS[kind].name}</div><div class="m-sub">${U.esc(c.nick)}${c.level && !isNorm ? ' · ' + U.esc(c.level) + ' ур.' : ''}${c.position ? ' · ' + U.esc(c.position) : ''}</div></div>
+              <div><div class="m-title">${REPORT_KINDS[kind].name}</div><div class="m-sub">${U.esc(c.nick)}${this.level() && !isNorm ? ' · ' + U.esc(ADMIN_LEVELS[this.level()]) + ' (' + this.level() + ')' : ''}${c.position ? ' · ' + U.esc(c.position) : ''}</div></div>
               <span style="flex:1"></span><button class="icon-btn" data-a="x">${icon('x')}</button></div>
             <div class="pane">
               ${
@@ -12291,8 +12304,12 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.12',
+        ['Доп. репорт: уровень админ-прав выбирается из списка (1 — младший модератор, 2 — модератор, 3 — старший модератор, 4 — администратор, 5 — старший администратор), без выбора — по должности в скрипте']
+    ],
+    [
         '1.11.11',
-        ['Норма и доп. репорт (для администрации до кураторов): кнопки в быстрой навигации открывают твой раздел, ник, уровень прав и должность подставляются сами, в доп. репорте работа выбирается кнопками (МП, онлайн, реакция), а ссылки на скриншоты вставляются картинками. Настраивается во вкладке «Должность»']
+        ['Норма и доп. репорт (для администрации до кураторов): кнопки в быстрой навигации открывают твой раздел, ник, уровень прав (1 — мл. модератор … 5 — старший администратор) и должность подставляются сами, в доп. репорте работа выбирается кнопками (МП, онлайн, реакция), а ссылки на скриншоты вставляются картинками. Настраивается во вкладке «Должность»']
     ],
     [
         '1.11.10',
