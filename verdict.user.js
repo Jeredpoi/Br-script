@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.31
+// @version      1.11.32
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.31', // подставляет build.sh из @version
+    version: '1.11.32', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -2163,6 +2163,14 @@ const Page = {
     prefixLabel() {
         const l = document.querySelector('.p-title-value .label');
         return l ? l.textContent.trim() : '';
+    },
+    // кому отвечаем: автор поста, под которым нажали «Ответить» / «Цитата» (null — автор темы)
+    replyTo: null,
+    postAuthor(msg) {
+        if (!msg) return null;
+        const u = msg.querySelector('.message-name .username, .message-userDetails .username, .message-user .username');
+        const name = (msg.dataset.author || (u && u.textContent) || '').trim();
+        return name ? { id: (u && u.getAttribute('data-user-id')) || '0', name } : null;
     },
     author() {
         const el =
@@ -5885,6 +5893,10 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 
 }
 .bbCodeBlock-title { background: color-mix(in srgb, var(--vd-acc) 10%, transparent) !important; color: #d6d8de !important; font-weight: 700; }
 .bbCodeBlock-content { background: transparent !important; }
+/* цитата в поле ответа (редактор форума) — в цветах интерфейса, а не светлым блоком */
+.fr-element blockquote, .fr-view blockquote { background: color-mix(in srgb, var(--vd-acc) 9%, rgba(255,255,255,.03)) !important; border: 0 !important; border-left: 3px solid var(--vd-acc) !important; border-radius: 8px !important; color: #d6d8de !important; padding: 8px 12px !important; margin: 6px 0 !important; }
+.fr-element blockquote *, .fr-view blockquote * { color: inherit !important; background: transparent !important; }
+.fr-element blockquote::before, .fr-view blockquote::before { color: var(--vd-acc) !important; font-weight: 700 !important; background: transparent !important; }
 .message-footer, .message-actionBar, .actionBar-action { color: #9da1ac !important; }
 .actionBar-action:hover, .message-footer a:hover { color: color-mix(in srgb, var(--vd-acc) 70%, #fff) !important; }
 
@@ -6509,7 +6521,7 @@ class ReplyBar {
         // итоговая строка по разделу темы, даже для ответов из «Общих» и своих паков
         const sec = this.packs().find(p => p.kind && p.kind !== 'any');
         return {
-            author: Page.author(),
+            author: Page.replyTo || Page.author(),
             target: this.analysis && this.analysis.target,
             kind: sec ? sec.kind : '',
             section: sec ? sec.name : ''
@@ -6557,7 +6569,9 @@ class ReplyBar {
         this._fit = null;
         const packs = this.packs();
         const s = Settings.get();
-        this.blocked = s.permCheck && !this.forced && !Page.canModerate();
+        // «Показать» в теме запоминается: в длинных темах (обмен баллов и т.п.) прав модератора нет, а отвечать надо
+        const forcedHere = (Store.get('forceThreads', []) || []).includes(Page.threadBase());
+        this.blocked = s.permCheck && !this.forced && !forcedHere && !Page.canModerate();
         if (this.blocked) {
             this.host.classList.remove('vd-docked');
             // отчёт (норма, доп. репорт) пишут как раз там, где прав модератора нет — кнопка видна и здесь
@@ -6566,6 +6580,9 @@ class ReplyBar {
             if (rb) rb.onclick = () => Reports.open(this.form, undefined, this);
             this.root.querySelector('[data-a="force"]').onclick = () => {
                 this.forced = true;
+                const list = (Store.get('forceThreads', []) || []).filter(x => x !== Page.threadBase());
+                list.push(Page.threadBase());
+                Store.set('forceThreads', list.slice(-300));
                 this.render();
             };
             return;
@@ -6722,11 +6739,21 @@ class ReplyBar {
                     `<span class="spacer"></span><span class="facts">${this.analysis.facts.map(f => `<span class="fact">${U.esc(f.k)} <b>${U.esc(f.v)}</b></span>`).join('')}</span>`
                 );
         }
+        // отвечаем не автору темы, а автору поста — видно, кому, и можно вернуть автора темы
+        const rt = Page.replyTo;
+        if (rt && rt.name !== Page.author().name)
+            parts.splice(1, 0, `<button class="hint" data-a="replyto" style="--c:var(--acc)" title="Ник в ответе — автор поста, под которым нажали «Ответить». Нажми, чтобы отвечать автору темы">${icon('users', 13)}Ответ: ${U.esc(rt.name)} ✕</button>`);
         parts.push(
             `${parts.some(p => p.includes('class="spacer"')) ? '' : '<span class="spacer"></span>'}<button class="pack-btn" data-a="pack" title="Сменить набор ответов">${U.esc(this.packLabel())}${icon('down', 12)}</button>`
         );
         row.innerHTML = parts.join('');
         row.style.display = parts.length ? '' : 'none';
+        const rtb = row.querySelector('[data-a="replyto"]');
+        if (rtb)
+            rtb.onclick = () => {
+                Page.replyTo = null;
+                this.renderHints();
+            };
         row.querySelectorAll('[data-hint]').forEach(b => {
             const e = this._sugg[+b.dataset.hint].e;
             b.addEventListener('click', () => this.pick(e.item, false));
@@ -12862,6 +12889,14 @@ const CHANGES = [
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
     ],
     [
+        '1.11.32',
+        [
+            'Длинные темы (обмен баллов и т.п.): нажал «Ответить» или «Цитата» под постом — ответ из панели этому человеку (его ник в приветствии), в панели видно «Ответ: Ник ✕»; панель при этом появляется, даже если прав модератора в теме нет',
+            '«Показать» панель в теме без прав модератора запоминается для этой темы',
+            'Цитата в поле ответа — в цветах интерфейса, а не светлым блоком'
+        ]
+    ],
+    [
         '1.11.31',
         ['Отчёты: поле, куда грузится фото, больше не может пропасть при вводе в соседнее; файл, брошенный мимо поля, не открывается вместо форума, а встаёт в свободное поле']
     ],
@@ -13562,6 +13597,26 @@ const Launcher = {
     }
 };
 
+// «Ответить» / «Цитата» под постом: ответ из панели — этому человеку (его ник в приветствии)
+function watchReplyTo() {
+    document.addEventListener(
+        'click',
+        e => {
+            const b = e.target.closest && e.target.closest('.actionBar-action--reply, .actionBar-action--quote, [data-xf-click="quote"]');
+            if (!b) return;
+            const who = Page.postAuthor(b.closest('.message'));
+            if (!who) return;
+            Page.replyTo = who;
+            Bars.forEach(bar => {
+                // отвечают конкретному человеку — панель нужна, даже если прав модератора в теме нет
+                if (bar.blocked) (bar.forced = true), bar.render();
+                else bar.renderHints();
+            });
+        },
+        true
+    );
+}
+
 function mountBars() {
     if (!Page.isThread()) return;
     Editor.forms().forEach(form => {
@@ -13681,6 +13736,7 @@ function boot() {
         safe(() => Theme.apply());
         safe(() => Launcher.sync());
         safe(mountBars);
+        safe(watchReplyTo);
         safe(mountAutograph);
         safe(() => Logo.apply());
         safe(() => QNav.mount());
