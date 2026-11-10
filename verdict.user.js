@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.32
+// @version      1.11.33
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.32', // подставляет build.sh из @version
+    version: '1.11.33', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -11656,6 +11656,13 @@ const Lightbox = {
             return null;
         }
         if (!/^https?:$/.test(u.protocol)) return null;
+        // элемент развёрнутого альбома: «адрес альбома#vdalb=N»
+        const al = u.hash.match(/^#vdalb=(\d+)$/);
+        if (al) {
+            if (!fetch) return true;
+            u.hash = '';
+            return this.album(u.href).then(list => list[+al[1]] || null);
+        }
         if (u.hostname === location.hostname) {
             const r = this.real(u.href);
             if (r === u.href) return null;
@@ -11774,31 +11781,132 @@ const Lightbox = {
         });
     },
     // Яндекс Диск: публичная ссылка → файл (фото или видео); в папке — первый файл с фото/видео
+    // ответ API Диска по публичной ссылке (файл или папка с _embedded.items)
+    yadiskData(u) {
+        const key = 'yad:' + u.href;
+        if (this.cache.has(key)) return this.cache.get(key);
+        const m = u.pathname.match(/^\/(i|d)\/([^/]+)(\/.*)?$/);
+        const pk = `https://disk.yandex.ru/${m[1]}/${m[2]}`;
+        const path = m[3] ? decodeURIComponent(m[3]) : '';
+        const p = this.gmJson(`https://cloud-api.yandex.net/v1/disk/public/resources?public_key=${encodeURIComponent(pk)}${path ? '&path=' + encodeURIComponent(path) : ''}&limit=200&preview_size=XXL`);
+        this.cache.set(key, p);
+        return p;
+    },
+    // файл Диска → картинка или VID+видео (документы и папки — null)
+    yaPick(x) {
+        if (!x || x.type !== 'file') return null;
+        const mt = String(x.media_type || ''),
+            mime = String(x.mime_type || '');
+        if (mt === 'video' || /^video\//.test(mime)) return x.file ? this.VID + x.file : this.VID;
+        if (mt === 'image' || /^image\//.test(mime)) return x.file || x.preview || null;
+        return null;
+    },
     yadisk(u) {
         const key = 'ya:' + u.href;
         if (this.cache.has(key)) return this.cache.get(key);
         const p = (async () => {
-            const m = u.pathname.match(/^\/(i|d)\/([^/]+)(\/.*)?$/);
-            const pk = `https://disk.yandex.ru/${m[1]}/${m[2]}`;
-            const path = m[3] ? decodeURIComponent(m[3]) : '';
-            const api = `https://cloud-api.yandex.net/v1/disk/public/resources?public_key=${encodeURIComponent(pk)}${path ? '&path=' + encodeURIComponent(path) : ''}&limit=200&preview_size=XXL`;
-            const d = await this.gmJson(api);
-            const pick = x => {
-                if (!x || x.type !== 'file') return null;
-                const mt = String(x.media_type || ''),
-                    mime = String(x.mime_type || '');
-                if (mt === 'video' || /^video\//.test(mime)) return x.file ? this.VID + x.file : this.VID;
-                if (mt === 'image' || /^image\//.test(mime)) return x.file || x.preview || null;
-                return null;
-            };
+            const d = await this.yadiskData(u);
             let r = null;
-            if (d && d.type === 'file') r = pick(d);
-            else if (d && d._embedded && Array.isArray(d._embedded.items)) for (const x of d._embedded.items) if ((r = pick(x))) break;
+            if (d && d.type === 'file') r = this.yaPick(d);
+            else if (d && d._embedded && Array.isArray(d._embedded.items)) for (const x of d._embedded.items) if ((r = this.yaPick(x))) break;
             // API не ответил — пробуем страницу сайта
             return r || this.fromPage(u.href);
         })();
         this.cache.set(key, p);
         return p;
+    },
+    // ---- альбомы: ссылка на папку или альбом → все фото и видео внутри ----
+    AL: '#vdalb=',
+    albumKind(href) {
+        let u;
+        try {
+            u = new URL(String(href).split('#')[0]);
+        } catch {
+            return '';
+        }
+        const h = u.hostname.toLowerCase().replace(/^www\./, '');
+        if (this.YADISK.test(h) && /^\/d\/[^/]+\/?$/.test(u.pathname)) return 'ya';
+        if (h === 'imgur.com' && /^\/(a|gallery)\/[\w-]+/.test(u.pathname)) return 'imgur';
+        if (/^ibb\.co(\.com)?$/.test(h) && /^\/album\//.test(u.pathname)) return 'ibb';
+        if (/^yapx\.(ru|cc)$/.test(h) && /^\/album\//.test(u.pathname)) return 'yapx';
+        if (h === 'photos.app.goo.gl' || (h === 'photos.google.com' && /^\/(share|album)\//.test(u.pathname))) return 'gphotos';
+        return '';
+    },
+    gmText(url) {
+        return new Promise(resolve => {
+            if (typeof GM_xmlhttpRequest !== 'function') return resolve('');
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                timeout: 12000,
+                onload: r => resolve(r.status >= 200 && r.status < 400 ? String(r.responseText || '') : ''),
+                onerror: () => resolve(''),
+                ontimeout: () => resolve('')
+            });
+        });
+    },
+    // все элементы альбома (адреса как у resolve: картинка или VID+видео); пусто — не альбом или не открылся
+    album(href) {
+        const base = String(href).split('#')[0];
+        const key = 'al:' + base;
+        if (this.cache.has(key)) return this.cache.get(key);
+        const kind = this.albumKind(base);
+        const uniq = list => [...new Set(list)].slice(0, 100);
+        const p = (async () => {
+            if (!kind) return [];
+            if (kind === 'ya') {
+                const d = await this.yadiskData(new URL(base));
+                return d && d._embedded && Array.isArray(d._embedded.items) ? d._embedded.items.map(x => this.yaPick(x)).filter(x => x && x !== this.VID) : [];
+            }
+            if (kind === 'imgur') {
+                const id = new URL(base).pathname.split('/')[2];
+                const t = (await this.gmText(`https://imgur.com/a/${id}/embed?pub=true`)) || (await this.gmText(base));
+                const found = [...t.matchAll(/i\.imgur\.com\/([A-Za-z0-9]{5,8})\.(jpe?g|png|gif|gifv|mp4|webp)/gi)].map(m => [m[1], m[2].toLowerCase()]);
+                const ids = new Set(found.map(x => x[0]));
+                // превью imgur — тот же номер с буквой размера в конце (abcdefg → abcdefgs): их не берём
+                const out = found.filter(([i]) => !(i.length > 5 && ids.has(i.slice(0, -1)) && /[sbtmlhg]$/.test(i)));
+                return uniq(out.map(([i, e]) => (/mp4|gifv/.test(e) ? this.VID + `https://i.imgur.com/${i}.mp4` : `https://i.imgur.com/${i}.${e}`)));
+            }
+            const t = await this.gmText(base);
+            if (kind === 'ibb') {
+                const json = [...t.matchAll(/"url"\s*:\s*"(https?:\\?\/\\?\/i\.ibb\.co[^"]+)"/g)].map(m => m[1].replace(/\\\//g, '/'));
+                const list = json.length ? json : [...t.matchAll(/https?:\/\/i\.ibb\.co(?:\.com)?\/[A-Za-z0-9]+\/[^"'\s<>]+?\.(?:jpe?g|png|gif|webp)/gi)].map(m => m[0]);
+                // одно фото в нескольких размерах — оставляем по одному на имя файла
+                const byName = new Map();
+                list.forEach(x => byName.has(x.split('/').pop()) || byName.set(x.split('/').pop(), x));
+                return uniq([...byName.values()]);
+            }
+            if (kind === 'yapx') return uniq([...t.matchAll(/https?:\/\/i\.yapx\.(?:ru|cc)\/[A-Za-z0-9_-]+\.(?:jpe?g|png|gif|webp)/gi)].map(m => m[0]));
+            if (kind === 'gphotos') return uniq([...t.matchAll(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_-]{20,}/g)].map(m => m[0] + '=w2400'));
+            return [];
+        })().catch(() => []);
+        this.cache.set(key, p);
+        return p;
+    },
+    // альбомы в списке просмотра разворачиваются во все их фото (листаются стрелками, как фото поста)
+    async expand() {
+        const list = this.urls;
+        for (let j = 0; j < list.length; j++) {
+            const u = list[j];
+            if (String(u).includes(this.AL) || !this.albumKind(u)) continue;
+            const items = await this.album(u);
+            if (this.urls !== list || !this.host) return;
+            if (items.length < 2) continue;
+            const base = String(u).split('#')[0];
+            const add = items.map((_, k) => base + this.AL + k);
+            list.splice(j, 1, ...add);
+            if (this.i > j) this.i += add.length - 1;
+            j += add.length - 1;
+            this.counter();
+        }
+    },
+    counter() {
+        if (!this.host) return;
+        const n = this.urls.length;
+        const m = String(this.urls[this.i] || '').match(/#vdalb=(\d+)$/);
+        const al = m ? this.urls.filter(x => x.split('#')[0] === this.urls[this.i].split('#')[0]).length : 0;
+        this.$('.cnt').textContent = n > 1 ? `${this.i + 1} / ${n}${al ? ` · альбом ${+m[1] + 1}/${al}` : ''}` : '';
+        this.$('.prev').style.display = this.$('.next').style.display = n > 1 ? '' : 'none';
     },
     // Облако Mail: адрес раздачи файлов + путь публичной ссылки; что это — по расширению имени
     mailru(u) {
@@ -11990,8 +12098,9 @@ const Lightbox = {
 
     open(urls, i) {
         this.close();
-        this.urls = urls;
+        this.urls = urls.slice();
         this.i = i;
+        setTimeout(() => this.expand(), 0);
         const host = document.createElement('div');
         host.id = 'vd-lightbox';
         document.documentElement.appendChild(host);
@@ -12406,8 +12515,7 @@ const Lightbox = {
     async show() {
         const n = this.urls.length,
             href = this.urls[this.i];
-        this.$('.cnt').textContent = n > 1 ? `${this.i + 1} / ${n}` : '';
-        this.$('.prev').style.display = this.$('.next').style.display = n > 1 ? '' : 'none';
+        this.counter();
         let host = '';
         try {
             host = new URL(href).hostname.replace(/^www\./, '');
@@ -12576,9 +12684,9 @@ const Lightbox = {
         const n = this.urls.length;
         if (a === 'x') this.close();
         else if (a === 'fit') this.fit(true);
-        else if (a === 'tab') window.open(this.urls[this.i], '_blank', 'noopener');
+        else if (a === 'tab') window.open(String(this.urls[this.i]).split(this.AL)[0], '_blank', 'noopener');
         else if (a === 'copy') {
-            navigator.clipboard.writeText(this.urls[this.i]).then(
+            navigator.clipboard.writeText(String(this.urls[this.i]).split(this.AL)[0]).then(
                 () => toast('Ссылка скопирована'),
                 () => toast('Не удалось скопировать', 'err')
             );
@@ -12887,6 +12995,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.33',
+        ['Просмотр доказательств: ссылка на альбом или папку (Яндекс Диск, imgur, ImgBB, Yapx, Google Фото) показывает все фото и видео внутри, а не только обложку — листаются стрелками, вверху «альбом 2/5»']
     ],
     [
         '1.11.32',
