@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.35
+// @version      1.11.36
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.35', // подставляет build.sh из @version
+    version: '1.11.36', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5634,7 +5634,7 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .pending button:hover { background: rgba(255,255,255,.1); }
 
 /* встроенная панель: часть редактора форума */
-.bar.docked { margin: 0; padding: 8px 10px; gap: 6px; border-radius: var(--host-r, 6px) var(--host-r, 6px) 0 0; background: var(--host-bg, var(--bg)); border: 1px solid var(--host-line, var(--line)); box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.bar.docked { margin: 0; padding: 8px 10px; gap: 6px; border-radius: var(--host-r, 6px) var(--host-r, 6px) 0 0; background: var(--host-bg, var(--bg)); border: 1px solid var(--host-line, var(--line)); box-shadow: none; backdrop-filter: var(--host-blur, none); -webkit-backdrop-filter: var(--host-blur, none); }
 .bar.docked .chip { height: 32px; padding: 0 10px 0 5px; border-radius: 8px; background: transparent; border-color: transparent; }
 .bar.docked .chip:hover, .bar.docked .chip.open { background: color-mix(in srgb, var(--c) 12%, transparent); border-color: color-mix(in srgb, var(--c) 30%, transparent); box-shadow: none; transform: none; }
 .bar.docked .chip.ghost { border-style: solid; }
@@ -6240,7 +6240,9 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--vd-acc) 
   .p-footer { padding-bottom: 70px !important; }
   body { padding-bottom: 72px !important; }
 }
-.fr-toolbar { background: rgba(255,255,255,.03) !important; }
+/* тема форума красит полосу инструментов серым более точным селектором — перебиваем */
+html body .fr-toolbar, html body .fr-box .fr-toolbar, html body .fr-box.fr-basic .fr-toolbar.fr-top, html body .fr-box.fr-basic .fr-toolbar { background: rgba(255,255,255,.03) !important; }
+html body .fr-box.fr-basic .fr-wrapper, html body .fr-box .fr-second-toolbar { background: transparent !important; }
 .input:focus, .fr-box.fr-focus, .input.is-focused { border-color: color-mix(in srgb, var(--vd-acc) 70%, transparent) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--vd-acc) 22%, transparent) !important; }
 
 /* меню и подсказки */
@@ -6821,7 +6823,23 @@ class ReplyBar {
         const b = getComputedStyle(box),
             t = getComputedStyle(bar);
         const set = (k, v) => v && this.root.style.setProperty(k, v);
-        set('--host-bg', solid(t.backgroundColor) || solid(b.backgroundColor));
+        // фон полоски инструментов полупрозрачный и лежит поверх фона самого редактора — берём оба слоя,
+        // иначе панель без тёмной подложки выходит серой и не в тон «стеклу»
+        const tb = bar !== box ? solid(t.backgroundColor) : '',
+            bb = solid(b.backgroundColor);
+        // включена тема VERDICT — цвета форума не копируем (тема форума может оставить их серыми): то же стекло, что у поля ответа
+        const themed = getComputedStyle(document.documentElement).getPropertyValue('--vd-glass').trim();
+        if (themed) {
+            this.root.style.setProperty('--host-bg', 'linear-gradient(rgba(255,255,255,.03), rgba(255,255,255,.03)), rgba(8,9,13,.45)');
+            this.root.style.setProperty('--host-line', 'var(--vd-line, rgba(255,255,255,.08))');
+            this.root.style.setProperty('--host-blur', 'blur(14px) saturate(1.2)');
+            set('--host-r', b.borderTopLeftRadius !== '0px' ? b.borderTopLeftRadius : '');
+            return;
+        }
+        set('--host-bg', tb && bb ? `linear-gradient(${tb}, ${tb}), ${bb}` : tb || bb);
+        // размытие под панелью — как у редактора
+        const blur = b.backdropFilter || b.webkitBackdropFilter;
+        if (blur && blur !== 'none') set('--host-blur', blur);
         set('--host-line', solid(b.borderTopColor));
         set('--host-r', b.borderTopLeftRadius !== '0px' ? b.borderTopLeftRadius : '');
     }
@@ -13277,6 +13295,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.36',
+        ['Панель с «Одобрено / Отказано» над полем ответа и полоса инструментов редактора — в цвете темы (тёмное стекло), а не серые, даже если тема форума красит их по-своему']
     ],
     [
         '1.11.35',
