@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.33
+// @version      1.11.34
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.33', // подставляет build.sh из @version
+    version: '1.11.34', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -167,10 +167,12 @@ const KIND_TAILS = {
     complaint: { approve: 'Жалоба одобрена.', deny: 'В жалобе отказано.' },
     appeal: { approve: 'Обжалование одобрено.', deny: 'В обжаловании отказано.' },
     app: { approve: 'Заявка одобрена.', deny: 'Заявка отклонена.' },
-    bio: { approve: 'Биография одобрена.', deny: 'Биография отклонена.' }
+    bio: { approve: 'Биография одобрена.', deny: 'Биография отклонена.' },
+    rps: { approve: 'RP-ситуация одобрена.', deny: 'RP-ситуация отклонена.' },
+    org: { approve: 'Организация одобрена.', deny: 'В создании организации отказано.' }
 };
 // разделы, для которых итоговую строку можно задать отдельно
-const TAIL_KINDS = { complaint: 'Жалобы', appeal: 'Обжалования', app: 'Заявки', bio: 'Биографии' };
+const TAIL_KINDS = { complaint: 'Жалобы', appeal: 'Обжалования', app: 'Заявки', bio: 'Биографии', rps: 'RP-ситуации', org: 'Неоф. организации' };
 // итоговая строка: своя для раздела → своя общая → стандартная для раздела → стандартная
 const Tails = {
     std(kind, v) {
@@ -1778,6 +1780,49 @@ const DEFAULT_PACKS = [
             }),
             it('review', 'Биография на рассмотрении', 'Биография на рассмотрении.', { key: 'рас' })
         ]
+    },
+    {
+        id: 'rps',
+        name: 'RP-ситуации',
+        match: '(rp|рп)[\\s-]*ситуац',
+        kind: 'rps',
+        items: [
+            it('approve', 'RP-ситуация одобрена', 'Требования соблюдены.', { key: 'ок' }),
+            it('deny', 'Не по форме', 'RP-ситуация не по форме. Форма — в закреплённой теме раздела.', { key: 'форма', hint: 'form' }),
+            it('deny', 'Название темы не по форме', 'Название темы должно быть по форме «[Краткое название события] Событие».', { key: 'назв' }),
+            it('deny', 'Нет скриншотов или видео', 'RP-ситуацию должны сопровождать скриншоты или видеоматериалы с места событий.', { key: 'скрин', hint: 'noproof' }),
+            it('deny', 'Нет ссылки на исходные материалы', 'В конце RP-ситуации нужна ссылка на исходные материалы, где видны RP-отыгровки.', { key: 'исход' }),
+            it('deny', 'OOC-информация', 'В RP-ситуации должна быть только внутриигровая информация; на скриншотах — без OOC и интерфейса.', { key: 'оос' }),
+            it('deny', 'Неправдоподобно', 'RP-ситуация должна быть правдоподобной и реалистичной, без сверхъестественных явлений.', { key: 'нереал' }),
+            it('deny', 'Много ошибок', 'RP-ситуация должна быть составлена грамотно, с соблюдением правил орфографии и пунктуации.', { key: 'ошиб' }),
+            it('deny', 'Шрифт', 'Минимальный размер шрифта — 15. Разрешённые шрифты: Verdana, Times New Roman.', { key: 'шрифт' }),
+            it('deny', 'Копирование', 'Запрещено копировать чужие RP-ситуации.', { key: 'копи' }),
+            it('deny', 'Противоречит логике', 'RP-ситуация противоречит игровой логике и здравому смыслу.', { key: 'логик' }),
+            it('review', 'На доработку', '{cursor}\n\nНа внесение изменений даётся 24 часа. Если тема не будет исправлена за это время, она будет отказана.', { key: 'дораб' }),
+            it('review', 'На рассмотрении', 'RP-ситуация на рассмотрении.', { key: 'рас' })
+        ]
+    },
+    {
+        id: 'org',
+        name: 'Неофициальные RP-организации',
+        match: 'неофиц|(rp|рп)[\\s-]*организац',
+        kind: 'org',
+        items: [
+            it('approve', 'Организация одобрена', 'Требования соблюдены. Тема закреплена — лидер обязан публиковать отчёты о деятельности.', { key: 'ок' }),
+            it('deny', 'Не по форме', 'Заявка не по форме. Форма — в закреплённой теме раздела.', { key: 'форма', hint: 'form' }),
+            it('deny', 'Название темы не по форме', 'Название темы должно быть по шаблону «Неофициальная RP организация [Название]».', { key: 'назв' }),
+            it('deny', 'Меньше 3 участников', 'Минимальный состав для создания неофициальной RP-организации — 3 человека.', { key: 'сост' }),
+            it('deny', 'Нет фото или видео', 'Заявка на организацию должна сопровождаться фото- или видеоматериалами.', { key: 'фото', hint: 'noproof' }),
+            it('deny', 'Госфракция', 'Запрещено создавать организации в форме государственных фракций.', { key: 'гос' }),
+            it('deny', 'Нарушающая деятельность', 'Организация не может вести деятельность, нарушающую правила проекта.', { key: 'наруш' }),
+            it('deny', 'Нет одобренной биографии лидера', 'Лидер должен иметь одобренную RP-биографию.', { key: 'био' }),
+            it('deny', 'Нет истории или деятельности', 'Организация должна иметь чёткий род деятельности и свою историю.', { key: 'истор' }),
+            it('deny', 'Копирование', 'Запрещено копировать чужие организации и воссоздавать ранее распущенные.', { key: 'копи' }),
+            it('deny', 'Шрифт и грамотность', 'Описание должно быть грамотным и читабельным. Минимальный размер шрифта — 15. Разрешённые шрифты: Verdana, Times New Roman.', { key: 'шрифт' }),
+            it('close', 'Распущена (нет отчётов)', 'В течение недели в теме не было активности от лидера — организация распущена, тема закрывается.', { key: 'расп' }),
+            it('review', 'На доработку', '{cursor}\n\nНа внесение изменений даётся 24 часа. Если тема не будет исправлена за это время, она будет отказана.', { key: 'дораб' }),
+            it('review', 'На рассмотрении', 'Заявка на рассмотрении.', { key: 'рас' })
+        ]
     }
 ];
 
@@ -2042,7 +2087,7 @@ const DIRECTIONS = {
     admin: { name: 'Администрации', packs: ['common', 'players', 'admins', 'appeals'] },
     orgs: { name: 'Организаций', packs: ['common', 'leaders', 'staff', 'reports', 'apps', 'players'] },
     ap: { name: 'АП', packs: ['common', 'agents', 'apps'], hint: 'агенты поддержки' },
-    forum: { name: 'ЗГКФ', packs: ['common', 'players', 'bio', 'apps'], hint: 'форум' }
+    forum: { name: 'ЗГКФ', packs: ['common', 'players', 'bio', 'rps', 'org', 'apps'], hint: 'форум' }
 };
 
 const ORGS = { soc: 'Соц', crim: 'Крим', sil: 'Сил', law: 'Право', gibdd: 'ГИБДД', smi: 'СМИ', mo: 'МО' };
@@ -2056,7 +2101,7 @@ const LEVELS = {
     admin: {
         name: 'Администратор',
         icon: 'shield',
-        packs: ['common', 'players', 'bio', 'apps'],
+        packs: ['common', 'players', 'bio', 'rps', 'org', 'apps'],
         hide: ['kp']
     },
     jmod: { name: 'Младший модератор', icon: 'badge', packs: ['common', 'players'], hide: ['ga', 'zga', 'spec', 'kp'] },
@@ -2244,8 +2289,11 @@ const Analyzer = {
         return { miss, sure, bare: miss.length >= 2 && !sure };
     },
     run(packs) {
-        const body = Page.firstPost();
-        if (!body) return { hints: [], facts: [], tags: {}, text: '' };
+        const post = Page.firstPost();
+        if (!post) return { hints: [], facts: [], tags: {}, text: '' };
+        // цитаты чужих сообщений и подпись — не слова автора: в анализ не берём
+        const body = post.cloneNode(true);
+        body.querySelectorAll('.bbCodeBlock--quote, .message-signature').forEach(x => x.remove());
         const text = Page.postText(body);
         const links = [...body.querySelectorAll('a[href]')]
             .map(a => a.href)
@@ -2269,7 +2317,7 @@ const Analyzer = {
                 !videos.includes(h) &&
                 !(kinds.has('appeal') && vkProfile(h))
         );
-        const media = Page.postMedia(body);
+        const media = Page.postMedia(post);
         const numbered = (text.match(/^\s*\d{1,2}\s*[.)]/gm) || []).length;
         const words = (text.match(/[A-Za-zА-Яа-яЁё]{2,}/g) || []).length;
         const timecodes = /\b\d{1,2}:\d{2}\b/.test(text);
@@ -2288,7 +2336,7 @@ const Analyzer = {
 
         const evidence = ['complaint', 'appeal', 'app'].some(k => kinds.has(k));
         const proofs = uniq.length + media - social.length;
-        if (evidence && uniq.length + media === 0) tag('noproof', 'В теме нет ни одной ссылки или вложения', true);
+        if ((evidence || kinds.has('rps') || kinds.has('org')) && uniq.length + Page.postMedia(post) === 0) tag('noproof', 'В теме нет ни одной ссылки или вложения', true);
         if (kinds.has('complaint') && videos.length && !timecodes)
             tag('timecode', 'Есть видео, но не указаны тайм-коды (нужны, если видео > 3 мин)', true);
         const needNumbered = kinds.has('app') ? 5 : kinds.has('complaint') || kinds.has('appeal') ? 4 : 0;
@@ -2315,7 +2363,9 @@ const Analyzer = {
         const hints = Object.entries(tags)
             .filter(([, v]) => v.strong)
             .map(([t, v]) => ({ tag: t, why: v.why }));
-        return { hints, facts, target, tags, text: U.norm(text), raw: text };
+        // «суть» жалобы/заявки — где автор описывает, что случилось: совпадения там весомее
+        const g = text.match(/(суть[^:\n]{0,40}|описани[ея][^:\n]{0,20}|что (нарушил|произошло|случилось)[^:\n]{0,20}|причина[^:\n]{0,20}):?([\s\S]{0,1500}?)(\n\s*\d+\s*[.)]|доказ|$)/i);
+        return { hints, facts, target, tags, text: U.norm(text), raw: text, gist: g ? U.norm(g[3]) : '', title: U.norm(Page.title()) };
     },
 
     // сколько дней назад была самая поздняя дата вида 01.10 / 01.10.2026 в тексте
@@ -2357,13 +2407,19 @@ const Match = {
         if (t) return { strong: t.strong, why: t.why };
         const cue = item.cue || (d && d.cue);
         if (!cue || !an.text) return null;
-        let m;
+        let re;
         try {
-            m = an.text.match(new RegExp(cue, 'i'));
+            re = new RegExp(cue, 'gi');
         } catch {
             return null;
         }
-        return m ? { strong: false, why: `В тексте: «${m[0].trim()}»` } : null;
+        const hits = an.text.match(re);
+        if (!hits) return null;
+        // вес: в сути жалобы и в заголовке — больше, чем просто где-то в тексте; повторы — чуть больше
+        const inGist = an.gist && new RegExp(cue, 'i').test(an.gist);
+        const inTitle = an.title && new RegExp(cue, 'i').test(an.title);
+        const score = (inGist ? 3 : 0) + (inTitle ? 2 : 0) + Math.min(3, hits.length);
+        return { strong: false, score, why: `${inGist ? 'В сути' : inTitle ? 'В заголовке' : 'В тексте'}: «${hits[0].trim()}»` };
     }
 };
 
@@ -2477,7 +2533,7 @@ const Answer = {
         const body = this.fill(item.text, v).trim();
         const found = item.id && Packs.item(item.id);
         const kind =
-            ctx.kind || (found && found.pack.kind) || (item.id && String(item.id).startsWith('bio-') ? 'bio' : '');
+            ctx.kind || (found && found.pack.kind) || ((m => (m ? m[1] : ''))(String(item.id || '').match(/^(bio|rps|org)-/)));
         const isTransfer = TRANSFER_VERDICTS.includes(item.verdict) && !body;
         let rawTail = item.tail !== undefined ? item.tail : Tails.get(kind, item.verdict);
         // у передачи без текста строка «Передано …» — весь ответ: «-» (без итоговой строки, в т.ч. общей) тут не годится
@@ -3240,8 +3296,8 @@ const BioCheck = {
             share >= 0.9 ? '' : `так набрано ${Math.round(share * 100)}% текста`
         );
 
-        const media = Page.postMedia(body);
-        add('1.7', 'Есть фото или материалы', media ? 'ok' : 'fail', media ? `${media} шт.` : '');
+        // вложения — точно; ссылки на фотохостинги — «скорее всего есть» (жёлтым)
+        mediaRule(body, add, '1.7', 'Есть фото или материалы');
 
         add(
             '1.8',
@@ -3344,6 +3400,210 @@ const BioCheck = {
             });
         });
     }
+};
+
+// проверка RP-ситуаций и неофициальных RP-организаций — по правилам разделов (как проверка биографий)
+
+// фото и видео по ссылкам в посте (imgur, yapx, Диск, YouTube…): «скорее всего есть», если вложений нет
+function postLinkMedia(body) {
+    const out = { photo: [], video: [] };
+    if (!body || typeof Lightbox === 'undefined') return out;
+    const seen = new Set();
+    body.querySelectorAll('a[href]').forEach(a => {
+        if (a.closest('.bbCodeBlock--quote, .message-signature')) return;
+        const u = Lightbox.url(a);
+        if (seen.has(u)) return;
+        seen.add(u);
+        const r = Lightbox.resolve(u, false);
+        if (!r) return;
+        let host = '';
+        try {
+            host = new URL(u).hostname.replace(/^www\./, '');
+        } catch {
+            return;
+        }
+        const s = String(r);
+        (s.startsWith(Lightbox.VID) || s.startsWith(Lightbox.EMB) || /youtu|rutube|vk(video)?\.|twitch|tiktok|vimeo/.test(host) ? out.video : out.photo).push(host);
+    });
+    return out;
+}
+// пункт «есть фото/видео»: вложения — точно, ссылки на фотохостинги — «скорее всего» (жёлтым), ничего — нет
+function mediaRule(body, add, rule, name, wantVideo = true) {
+    const media = Page.postMedia(body);
+    const l = postLinkMedia(body);
+    const links = l.photo.length + (wantVideo ? l.video.length : 0);
+    const hosts = [...new Set([...l.photo, ...(wantVideo ? l.video : [])])].slice(0, 3).join(', ');
+    if (media) add(rule, name, 'ok', `${media} шт. в посте${links ? ` + ${links} по ссылкам` : ''}`);
+    else if (links) add(rule, name, 'warn', `скорее всего есть: ${links} ${links === 1 ? 'ссылка' : 'ссылки'} (${hosts}) — открой и проверь`);
+    else add(rule, name, 'fail', 'ни вложений, ни ссылок на фото/видео');
+}
+// текст после подписи пункта формы до следующего пункта
+function formPart(text, label, labels) {
+    const i = text.search(new RegExp(label, 'i'));
+    if (i < 0) return '';
+    const rest = text.slice(i).replace(new RegExp('^.*?' + label + '[^:\\n]*:?', 'i'), '');
+    const next = labels.map(l => rest.search(new RegExp(l, 'i'))).filter(x => x > 0);
+    return next.length ? rest.slice(0, Math.min(...next)) : rest;
+}
+// небрежность: предложения с маленькой буквы и пробелы перед знаками; в коротком тексте хватает и двух
+const sloppyOf = text => {
+    const lowerStarts = (text.match(/[.!?]\s+[а-яё]/g) || []).length + (/^\s*[а-яё]/.test(text) ? 1 : 0);
+    const spaces = (text.match(/\s[,.!?]/g) || []).length;
+    const n = lowerStarts + spaces;
+    const words = (text.match(/[A-Za-zА-Яа-яЁё]{2,}/g) || []).length;
+    return { lowerStarts, spaces, n, bad: n > 6 || (n >= 2 && n > words / 60) };
+};
+
+// ---- RP-ситуация ----
+const RPS_FORM = [
+    ['Название', 'название'],
+    ['Пролог', 'пролог'],
+    ['Сюжет', 'сюжет'],
+    ['Эпилог', 'эпилог'],
+    ['Ссылка на исходные материалы', 'ссылк[аи]\\s+на\\s+исходн']
+];
+const RPS_REASONS = {
+    1.1: 'в RP-ситуации должна быть только внутриигровая информация',
+    1.2: 'RP-ситуация должна быть составлена грамотно, с соблюдением правил орфографии и пунктуации',
+    1.3: 'RP-ситуация должна быть правдоподобной, без сверхъестественных явлений',
+    1.4: 'RP-ситуацию должны сопровождать скриншоты или видеоматериалы с места событий',
+    1.5: 'название темы — по форме «[Краткое название события] Событие»',
+    1.6: 'на скриншотах не должно быть OOC-информации и интерфейса',
+    1.7: 'администрация не выдаёт деньги и имущество за одобренную RP-ситуацию',
+    1.8: 'в конце нужна ссылка на исходные материалы с RP-отыгровками',
+    1.9: 'текст — шрифтом Verdana или Times New Roman, размером от 15',
+    '1.10': 'запрещено копировать чужие RP-ситуации',
+    форма: 'заполните все пункты формы подачи'
+};
+const OOC_RE = /(^|[^а-яё])(ooc|оос|ирл|irl|в реальной жизни|в реале|discord|дискорд|телеграм|вконтакт|админ(истратор)?\s+(сервера|проекта)|репорт|\/(me|do|try|b|n)\s)/i;
+const POWERS_RE = /сверхспособн|сверхъестеств|бессмерт|телепорт|телекинез|магическ|магия|колдов|призрак|воскрес|супергеро|читает мысли|невидимк|инопланет|зомби|вампир/i;
+const REWARD_RE = /(выда(ть|йте)|прошу|хочу|дайте|получить)\s+[^.!?]{0,30}(деньг|денег|денежн|вознагражд|награ|компенсац|имуществ|машин|авто|дом|бизнес)/i;
+
+// ---- неофициальная RP-организация ----
+const ORG_LABELS = ['название', 'истори', 'состав', 'устав', 'описани', 'отличительн'];
+const ORG_FORM = [
+    ['Название организации', 'название'],
+    ['История создания', 'истори[яи]\\s+создани'],
+    ['Состав участников', 'состав\\s+участник'],
+    ['Устав', 'устав'],
+    ['Описание деятельности', 'описани[ея]\\s+деятельност'],
+    ['Отличительная визуальная особенность', 'отличительн']
+];
+const ORG_REASONS = {
+    крит1: 'для создания организации нужно минимум 3 участника',
+    крит2: 'у организации должен быть чёткий род деятельности и своя история',
+    крит3: 'описание должно быть составлено грамотно и читабельно',
+    крит4: 'текст — шрифтом Verdana или Times New Roman, размером от 15',
+    крит5: 'лидер должен иметь одобренную RP-биографию',
+    1.1: 'организация не должна вести деятельность, нарушающую правила проекта',
+    1.5: 'запрещено копировать чужие организации и воссоздавать распущенные',
+    1.6: 'запрещено создавать организации в форме государственных фракций',
+    1.8: 'название темы — по шаблону «Неофициальная RP организация [Название]»',
+    1.9: 'название организации должно отражать её тематику',
+    '1.10': 'заявка должна сопровождаться фото- или видеоматериалами',
+    форма: 'заполните все пункты формы подачи заявки'
+};
+const STATE_RE = /росгвард|(^|[^а-яё])мвд|умвд|полици|гибдд|дпс|фсб|фсин|мчс|армия|армии|воинск|военн\S* част|прокуратур|правительств|минздрав|больниц|сми(?![а-яё])|омон|спецназ|следственн\S* комитет/i;
+const ORG_BAD_RE = /(продаж\S*|прода(ём|ем|ю))\s+[^.]{0,20}(вирт|аккаунт|ив(?![а-яё])|игров\S* валют)|(^|[^а-яё])чит(ы|ер|еры)(?![а-яё])|обман\S* игрок|слив\S* (организац|фракц)|багоюз/i;
+
+const RpCheck = {
+    // какой раздел: 'rps' — RP-ситуации, 'org' — неофициальные организации, '' — другое
+    kind(packs) {
+        const k = (packs || []).map(p => p.kind);
+        if (k.includes('rps')) return 'rps';
+        if (k.includes('org')) return 'org';
+        const t = Page.crumbs() + ' ' + Page.title();
+        if (/rp\s*ситуац|рп\s*ситуац|ситуаци/i.test(t)) return 'rps';
+        if (/неофиц|rp\s*организац|рп\s*организац/i.test(t)) return 'org';
+        return '';
+    },
+    run(kind) {
+        const body = Page.firstPost();
+        if (!body) return null;
+        const text = Page.postText(body);
+        const title = Page.title();
+        const res = [];
+        const R = kind === 'org' ? ORG_REASONS : RPS_REASONS;
+        const add = (rule, name, status, note) => res.push({ rule, name, status, note, reason: R[rule] });
+        const sl = sloppyOf(text);
+        const share = BioCheck.fontShare(body);
+        const fontSt = share >= 0.9 ? 'ok' : share >= 0.5 ? 'warn' : 'fail';
+        const fontNote = share >= 0.9 ? '' : `так набрано ${Math.round(share * 100)}% текста`;
+        const words = BioCheck.words(text);
+        if (kind === 'rps') {
+            const ooc = text.match(OOC_RE);
+            add('1.1', 'Только внутриигровая информация', ooc ? 'warn' : 'ok', ooc ? `есть «${ooc[0].trim()}» — проверь` : '');
+            add('1.2', 'Грамотно', sl.bad ? 'warn' : 'ok', sl.bad ? `${sl.lowerStarts} предл. с маленькой буквы, ${sl.spaces} пробелов перед знаками` : 'грубых ошибок не видно');
+            const pw = text.match(POWERS_RE);
+            add('1.3', 'Правдоподобно, без сверхъестественного', pw ? 'warn' : 'ok', pw ? `есть «${pw[0]}» — проверь` : '');
+            mediaRule(body, add, '1.4', 'Скриншоты или видео с места событий');
+            const t = title.replace(/^\s*(на рассмотрении|одобрено|отказано|закрыто|на доработке)\s*/i, '');
+            const okTitle = /^\s*\[[^\]]{2,60}\]\s*\S.{1,}/.test(t);
+            add('1.5', 'Название «[Краткое название] Событие»', okTitle ? 'ok' : 'fail', okTitle ? '' : `сейчас «${title}»`);
+            add('1.6', 'На скриншотах нет OOC и интерфейса', 'manual', 'открой скриншоты и посмотри');
+            const rw = text.match(REWARD_RE);
+            add('1.7', 'Не просит деньги или имущество', rw ? 'warn' : 'ok', rw ? `есть «${rw[0]}»` : '');
+            const src = formPart(text, 'ссылк[аи]\\s+на\\s+исходн', []);
+            const tailLinks = body.querySelectorAll('a[href]').length;
+            const hasSrc = /https?:\/\/\S+/.test(src) || (src !== '' && tailLinks > 0 && /\S/.test(src));
+            add('1.8', 'В конце ссылка на исходные материалы', hasSrc ? 'ok' : src !== '' ? 'fail' : 'fail', hasSrc ? '' : src !== '' ? 'пункт есть, ссылки после него нет' : 'пункта «Ссылка на исходные материалы» нет');
+            add('1.9', 'Verdana или Times New Roman, от 15', fontSt, fontNote);
+            add('1.10', 'Не скопирована', 'manual', 'автоматически не проверить');
+            const miss = RPS_FORM.filter(([, re]) => !new RegExp(re, 'i').test(text)).map(x => x[0]);
+            add('форма', 'Все пункты формы', miss.length ? 'fail' : 'ok', miss.length ? 'нет: ' + miss.join(', ').toLowerCase() : '');
+        } else {
+            const members = formPart(text, 'состав\\s+участник', ORG_LABELS.filter(x => x !== 'состав'));
+            const nicks = [...new Set(members.match(/[A-Z][a-z]{1,15}_[A-Z][a-z]{1,15}/g) || [])];
+            add('крит1', 'Минимум 3 участника', nicks.length >= 3 ? 'ok' : members && nicks.length ? 'fail' : 'warn', nicks.length ? `в составе ${nicks.length}: ${nicks.slice(0, 5).join(', ')}` : members ? 'ники в составе не найдены — проверь' : 'пункта «Состав участников» нет');
+            const hist = formPart(text, 'истори[яи]\\s+создани', ORG_LABELS.filter(x => x !== 'истори'));
+            const act = formPart(text, 'описани[ея]\\s+деятельност', ORG_LABELS.filter(x => x !== 'описани'));
+            const hw = BioCheck.words(hist),
+                aw = BioCheck.words(act);
+            add('крит2', 'Чёткий род деятельности и история', hw >= 25 && aw >= 8 ? 'ok' : hw && aw ? 'warn' : 'fail', `история ${hw} сл., деятельность ${aw} сл.`);
+            add('крит3', 'Грамотно и читабельно', sl.bad ? 'warn' : 'ok', sl.bad ? `${sl.lowerStarts} предл. с маленькой буквы, ${sl.spaces} пробелов перед знаками` : 'грубых ошибок не видно');
+            add('крит4', 'Verdana или Times New Roman, от 15', fontSt, fontNote);
+            add('крит5', 'У лидера одобренная RP-биография', 'manual', 'проверь в разделе биографий');
+            const bad = text.match(ORG_BAD_RE);
+            add('1.1', 'Деятельность не нарушает правила', bad ? 'warn' : 'ok', bad ? `есть «${bad[0].trim()}»` : '');
+            add('1.5', 'Не копия и не распущенная ранее', 'manual', 'автоматически не проверить');
+            const name = formPart(text, 'название', ORG_LABELS.filter(x => x !== 'название')).trim().split('\n')[0] || title;
+            const st = (name + ' ' + title).match(STATE_RE);
+            add('1.6', 'Не в форме госфракции', st ? 'warn' : 'ok', st ? `в названии «${st[0].trim()}»` : '');
+            const t = title.replace(/^\s*(на рассмотрении|одобрено|отказано|закрыто|на доработке)\s*/i, '');
+            const okTitle = /неофициальн\S*\s+(rp|рп)\s+организаци\S*\s*\S{2,}/i.test(t);
+            add('1.8', 'Название «Неофициальная RP организация [Название]»', okTitle ? 'ok' : 'fail', okTitle ? '' : `сейчас «${title}»`);
+            add('1.9', 'Название отражает тематику', 'manual', name ? `«${name.trim().slice(0, 50)}»` : '');
+            mediaRule(body, add, '1.10', 'Фото- или видеоматериалы');
+            const miss = ORG_FORM.filter(([, re]) => !new RegExp(re, 'i').test(text)).map(x => x[0]);
+            add('форма', 'Все пункты формы', miss.length ? 'fail' : 'ok', miss.length ? 'нет: ' + miss.join(', ').toLowerCase() : '');
+        }
+        const count = s => res.filter(r => r.status === s).length;
+        return { kind, res, fails: count('fail'), warns: count('warn'), words, text };
+    },
+    reasons(report, statuses) {
+        return report.res
+            .filter(r => statuses.includes(r.status))
+            .map(r => `• ${r.rule === 'форма' ? 'Форма' : /^крит/.test(r.rule) ? 'Критерии' : 'Пункт ' + r.rule}: ${r.reason}${r.note ? ` (${r.note})` : ''}.`)
+            .join('\n');
+    },
+    answers(report) {
+        const what = report.kind === 'org' ? 'Организация' : 'RP-ситуация';
+        const id = report.kind === 'org' ? 'org' : 'rps';
+        const fails = this.reasons(report, ['fail']);
+        const all = this.reasons(report, ['fail', 'warn']);
+        return {
+            deny: { id: id + '-auto-deny', verdict: 'deny', title: 'Отказ по итогам проверки', text: `${fails || all || '{cursor}'}` },
+            fix: { id: id + '-auto-fix', verdict: 'review', title: 'На доработку', tail: 'На доработку — 24 часа.', open: true, text: `${all || '{cursor}'}\n\nНе исправлено за 24 часа — отказ.` },
+            approve: { id: id + '-auto-ok', verdict: 'approve', title: `${what} одобрена`, text: 'Требования соблюдены.' }
+        };
+    }
+};
+
+// проверки разделов: биография, RP-ситуация, организация — у всех одно окно
+const CHECKS = {
+    bio: { title: 'биографии', run: () => BioCheck.run(), answers: r => BioCheck.answers(r) },
+    rps: { title: 'RP-ситуации', run: () => RpCheck.run('rps'), answers: r => RpCheck.answers(r) },
+    org: { title: 'организации', run: () => RpCheck.run('org'), answers: r => RpCheck.answers(r) }
 };
 
 // генеративные обои
@@ -6292,9 +6552,14 @@ const Picker = {
             const m = mark(e);
             return m ? (m.strong ? 0 : 1) : 2;
         };
+        // среди «похожих» выше те, у кого совпадение весомее (в сути жалобы, в заголовке, несколько раз)
+        const score = e => {
+            const m = mark(e);
+            return (m && m.score) || 0;
+        };
         return entries
-            .map((e, i) => ({ e, r: rank(e), i }))
-            .sort((a, b) => a.r - b.r || a.i - b.i)
+            .map((e, i) => ({ e, r: rank(e), s: score(e), i }))
+            .sort((a, b) => a.r - b.r || b.s - a.s || a.i - b.i)
             .map(x => x.e);
     },
     close() {
@@ -6481,8 +6746,10 @@ class ReplyBar {
         requestAnimationFrame(() => this.matchEditor());
         this.analysis = Analyzer.run(this.packs());
         this.checkProofs();
+        // проверка по правилам раздела: биография, RP-ситуация или неофициальная организация
         const isBio = this.packs().some(p => p.kind === 'bio') || /биограф/i.test(Page.crumbs() + ' ' + Page.title());
-        this.bio = isBio ? BioCheck.run() : null;
+        this.checkKind = isBio ? 'bio' : RpCheck.kind(this.packs());
+        this.bio = this.checkKind ? CHECKS[this.checkKind].run() : null;
         this.render();
     }
     // доказательства из темы: открываются ли ссылки (в фоне, по мере ответов сайтов)
@@ -6704,7 +6971,7 @@ class ReplyBar {
             const c = b.fails ? VERDICTS.deny.color : b.warns ? VERDICTS.review.color : VERDICTS.approve.color;
             const okCount = b.res.filter(r => r.status === 'ok').length;
             parts.push(
-                `<button class="hint" data-a="bio" style="--c:${c}" title="Проверка по правилам раздела">${icon('shield', 13)}Проверка биографии: ✓${okCount}${b.warns ? ' · ⚠' + b.warns : ''}${b.fails ? ' · ✗' + b.fails : ''}</button>`
+                `<button class="hint" data-a="bio" style="--c:${c}" title="Проверка по правилам раздела">${icon('shield', 13)}Проверка ${U.esc(CHECKS[this.checkKind || 'bio'].title)}: ✓${okCount}${b.warns ? ' · ⚠' + b.warns : ''}${b.fails ? ' · ✗' + b.fails : ''}</button>`
             );
         }
         if (this.proofs && this.proofs.length) {
@@ -7238,7 +7505,8 @@ const RolePicker = {
 // окно проверки биографии
 const BioPanel = {
     open(bar) {
-        const report = (bar.bio = BioCheck.run());
+        const ck = CHECKS[bar.checkKind || 'bio'];
+        const report = (bar.bio = ck.run());
         if (!report) return toast('Не нашёл первое сообщение темы', 'err');
         const mark = {
             ok: ['check', '#2fbf71'],
@@ -7250,13 +7518,13 @@ const BioPanel = {
             .map(r => {
                 const [ic, c] = mark[r.status];
                 return `<div class="row"><span class="vic sm" style="--c:${c}">${icon(ic, 11)}</span>
-                    <div class="lbl"><b>${r.rule === 'форма' ? 'Форма' : r.rule}</b> · ${U.esc(r.name)}${r.note ? `<small>${U.esc(r.note)}</small>` : ''}</div></div>`;
+                    <div class="lbl"><b>${r.rule === 'форма' ? 'Форма' : /^крит/.test(r.rule) ? 'Критерий' : r.rule}</b> · ${U.esc(r.name)}${r.note ? `<small>${U.esc(r.note)}</small>` : ''}</div></div>`;
             })
             .join('');
         const scrim = Layer.add(
             U.h(`<div class="scrim"><div class="modal sm">
             <div class="m-head"><span class="vic" style="--c:var(--acc);width:34px;height:34px;border-radius:10px">${icon('shield', 16)}</span>
-              <div><div class="m-title">Проверка биографии</div>
+              <div><div class="m-title">Проверка ${U.esc(ck.title)}</div>
                 <div class="m-sub">${report.words} слов · нарушений ${report.fails}, сомнительно ${report.warns}</div></div>
               <span style="flex:1"></span><button class="icon-btn" data-a="x">${icon('x')}</button></div>
             <div class="pane">
@@ -7274,7 +7542,7 @@ const BioPanel = {
         const close = () => scrim.remove();
         scrim.querySelector('[data-a="x"]').onclick = close;
         scrim.addEventListener('mousedown', e => e.target === scrim && close());
-        const answers = BioCheck.answers(report);
+        const answers = ck.answers(report);
         ['approve', 'fix', 'deny'].forEach(k => {
             scrim.querySelector(`[data-a="${k}"]`).onclick = () => {
                 close();
@@ -11828,7 +12096,7 @@ const Lightbox = {
         if (this.YADISK.test(h) && /^\/d\/[^/]+\/?$/.test(u.pathname)) return 'ya';
         if (h === 'imgur.com' && /^\/(a|gallery)\/[\w-]+/.test(u.pathname)) return 'imgur';
         if (/^ibb\.co(\.com)?$/.test(h) && /^\/album\//.test(u.pathname)) return 'ibb';
-        if (/^yapx\.(ru|cc)$/.test(h) && /^\/album\//.test(u.pathname)) return 'yapx';
+        // Yapx не разворачиваем: на его странице кроме своих фото — чужие («похожие», реклама), не отличить
         if (h === 'photos.app.goo.gl' || (h === 'photos.google.com' && /^\/(share|album)\//.test(u.pathname))) return 'gphotos';
         return '';
     },
@@ -11854,6 +12122,8 @@ const Lightbox = {
         const uniq = list => [...new Set(list)].slice(0, 100);
         const p = (async () => {
             if (!kind) return [];
+            // больше 50 — скорее всего зацепили лишнее: не разворачиваем
+            const cap = list => (list.length > 50 ? [] : list);
             if (kind === 'ya') {
                 const d = await this.yadiskData(new URL(base));
                 return d && d._embedded && Array.isArray(d._embedded.items) ? d._embedded.items.map(x => this.yaPick(x)).filter(x => x && x !== this.VID) : [];
@@ -11865,19 +12135,18 @@ const Lightbox = {
                 const ids = new Set(found.map(x => x[0]));
                 // превью imgur — тот же номер с буквой размера в конце (abcdefg → abcdefgs): их не берём
                 const out = found.filter(([i]) => !(i.length > 5 && ids.has(i.slice(0, -1)) && /[sbtmlhg]$/.test(i)));
-                return uniq(out.map(([i, e]) => (/mp4|gifv/.test(e) ? this.VID + `https://i.imgur.com/${i}.mp4` : `https://i.imgur.com/${i}.${e}`)));
+                return cap(uniq(out.map(([i, e]) => (/mp4|gifv/.test(e) ? this.VID + `https://i.imgur.com/${i}.mp4` : `https://i.imgur.com/${i}.${e}`))));
             }
             const t = await this.gmText(base);
             if (kind === 'ibb') {
-                const json = [...t.matchAll(/"url"\s*:\s*"(https?:\\?\/\\?\/i\.ibb\.co[^"]+)"/g)].map(m => m[1].replace(/\\\//g, '/'));
-                const list = json.length ? json : [...t.matchAll(/https?:\/\/i\.ibb\.co(?:\.com)?\/[A-Za-z0-9]+\/[^"'\s<>]+?\.(?:jpe?g|png|gif|webp)/gi)].map(m => m[0]);
+                // только данные самого альбома (в них «url» каждого фото); картинки со страницы не берём — там бывают чужие
+                const list = [...t.matchAll(/"url"\s*:\s*"(https?:\\?\/\\?\/i\.ibb\.co[^"]+)"/g)].map(m => m[1].replace(/\\\//g, '/'));
                 // одно фото в нескольких размерах — оставляем по одному на имя файла
                 const byName = new Map();
                 list.forEach(x => byName.has(x.split('/').pop()) || byName.set(x.split('/').pop(), x));
-                return uniq([...byName.values()]);
+                return cap(uniq([...byName.values()]));
             }
-            if (kind === 'yapx') return uniq([...t.matchAll(/https?:\/\/i\.yapx\.(?:ru|cc)\/[A-Za-z0-9_-]+\.(?:jpe?g|png|gif|webp)/gi)].map(m => m[0]));
-            if (kind === 'gphotos') return uniq([...t.matchAll(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_-]{20,}/g)].map(m => m[0] + '=w2400'));
+            if (kind === 'gphotos') return cap(uniq([...t.matchAll(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_-]{20,}/g)].map(m => m[0] + '=w2400')));
             return [];
         })().catch(() => []);
         this.cache.set(key, p);
@@ -12995,6 +13264,15 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.34',
+        [
+            'Новые разделы: RP-ситуации и неофициальные RP-организации — свои ответы и автопроверка по правилам (форма, название темы, скриншоты, ссылка на материалы, шрифт, состав от 3 человек, госфракции и др.)',
+            'Проверка биографий видит фото по ссылкам (imgur, yapx, Диск…): если вложений нет, но есть такие ссылки — жёлтым «скорее всего есть»',
+            'Yapx больше не листает чужие картинки со своей страницы; альбомы ImgBB — только фото самого альбома',
+            'Подсказки ответов точнее: цитаты чужих сообщений не учитываются, совпадения в «Сути жалобы» и в заголовке ставятся выше'
+        ]
     ],
     [
         '1.11.33',
