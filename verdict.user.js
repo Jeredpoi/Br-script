@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.34
+// @version      1.11.35
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.34', // подставляет build.sh из @version
+    version: '1.11.35', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -2197,6 +2197,13 @@ const Page = {
         const bc = document.querySelector('.p-breadcrumbs');
         return bc ? bc.textContent.replace(/\s+/g, ' ').trim() : '';
     },
+    // раздел самой темы — последняя «крошка» (родительские разделы вроде «RP биографии и ситуации» не в счёт)
+    section() {
+        const items = [...document.querySelectorAll('.p-breadcrumbs > li, .p-breadcrumbs [itemprop="itemListElement"]')];
+        const last = items.length ? items[items.length - 1] : null;
+        const t = last ? last.textContent.replace(/\s+/g, ' ').trim() : '';
+        return t || this.crumbs();
+    },
     // заголовок без префикса: копия узла без .label и .label-append
     title() {
         const t = document.querySelector('.p-title-value');
@@ -3512,7 +3519,7 @@ const RpCheck = {
         const k = (packs || []).map(p => p.kind);
         if (k.includes('rps')) return 'rps';
         if (k.includes('org')) return 'org';
-        const t = Page.crumbs() + ' ' + Page.title();
+        const t = Page.section() + ' ' + Page.title();
         if (/rp\s*ситуац|рп\s*ситуац|ситуаци/i.test(t)) return 'rps';
         if (/неофиц|rp\s*организац|рп\s*организац/i.test(t)) return 'org';
         return '';
@@ -6693,12 +6700,17 @@ class ReplyBar {
             this.render();
         });
     }
+    // наборы ответов под тему: сначала по разделу самой темы и заголовку, если ничего — по всей цепочке разделов
+    foundPacks() {
+        const here = Packs.detect(Page.section() + ' ' + Page.title());
+        return here.length ? here : Packs.detect(Page.crumbs() + ' ' + Page.title());
+    }
     packs() {
         if (this.packOverride) {
             const p = Packs.find(this.packOverride);
             if (p) return [p];
         }
-        const found = Packs.detect(Page.crumbs() + ' ' + Page.title());
+        const found = this.foundPacks();
         const vis = found.filter(p => Access.packVisible(p));
         this.hiddenHere = found.filter(p => !vis.includes(p));
         return vis;
@@ -6747,8 +6759,9 @@ class ReplyBar {
         this.analysis = Analyzer.run(this.packs());
         this.checkProofs();
         // проверка по правилам раздела: биография, RP-ситуация или неофициальная организация
-        const isBio = this.packs().some(p => p.kind === 'bio') || /биограф/i.test(Page.crumbs() + ' ' + Page.title());
-        this.checkKind = isBio ? 'bio' : RpCheck.kind(this.packs());
+        // по разделу самой темы (и скрытым для должности наборам тоже), а не по родительским разделам
+        const kinds = (this.packOverride ? this.packs() : this.foundPacks()).map(p => p.kind);
+        this.checkKind = kinds.includes('rps') ? 'rps' : kinds.includes('org') ? 'org' : kinds.includes('bio') ? 'bio' : RpCheck.kind([]) || (/биограф/i.test(Page.section() + ' ' + Page.title()) ? 'bio' : '');
         this.bio = this.checkKind ? CHECKS[this.checkKind].run() : null;
         this.render();
     }
@@ -13264,6 +13277,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.35',
+        ['Раздел определяется по самому разделу темы, а не по родительским: RP-ситуации и организации внутри «RP биографии и …» больше не проверяются как биографии']
     ],
     [
         '1.11.34',
