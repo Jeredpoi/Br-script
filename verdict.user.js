@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.38
+// @version      1.11.39
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.38', // подставляет build.sh из @version
+    version: '1.11.39', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10855,6 +10855,23 @@ const Reports = {
                 return rows.map(r => r.dataset.src || (r._u && r._u) || '').filter(Boolean);
             },
             bad: () => [...box.children].filter(r => r.classList.contains('bad')).length,
+            // что вписано в поля (для черновика) и вернуть вписанное
+            raw: () => [...box.children].map(r => r.querySelector('input.inp').value.trim()).filter(Boolean),
+            set: list => {
+                (list || []).forEach(v => {
+                    const r = [...box.children].find(empty);
+                    if (!r) return;
+                    const inp = r.querySelector('input.inp');
+                    inp.value = v;
+                    inp.dispatchEvent(new Event('input'));
+                });
+            },
+            clear: () => {
+                while (box.childElementCount > 1) box.lastElementChild.remove();
+                const inp = box.querySelector('input.inp');
+                inp.value = '';
+                inp.dispatchEvent(new Event('input'));
+            },
             // файлы бросили мимо поля — в первое свободное поле этого списка
             take: files => {
                 const r = [...box.children].find(empty);
@@ -10897,7 +10914,7 @@ const Reports = {
                 <div class="vd-dop-sec" data-ws="stat" hidden><div class="vd-rep-l"><span data-l="statname">Онлайн</span> — скриншот статистики</div><div class="vd-ll" data-ll="stat"></div></div>
               </div>
               <div class="muted" data-a="warn" style="font-size:12px;min-height:16px"></div>
-              <div class="btns" style="margin-top:8px"><span style="flex:1"></span>
+              <div class="btns" style="margin-top:8px"><button class="btn" data-a="clr" title="Очистить все поля отчёта" hidden>${icon('trash', 14)}Очистить</button><span style="flex:1"></span>
                 <button class="btn" data-a="ins">${icon('pen', 14)}Вставить</button>
                 <button class="btn pri" data-a="send">${icon('check', 14)}Отправить</button>
               </div>
@@ -10980,6 +10997,43 @@ const Reports = {
                 if (on) (+b.dataset.w === 0 ? lists.mp : lists.stat).focus();
             };
         });
+        // ---- черновик: заполненное не пропадает при закрытии окна (до отправки или до нового дня) ----
+        const today = iso;
+        const LKEYS = ['astats', 'proofs', 'mp', 'stat'];
+        const snap = () => ({
+            d: today,
+            tab: kind,
+            day: ($('[data-k="day"]') || {}).value || '',
+            works: sel(),
+            lists: Object.fromEntries(LKEYS.map(k => [k, lists[k] ? lists[k].raw() : []]))
+        });
+        const filled = d => d && (LKEYS.some(k => (d.lists[k] || []).length) || (d.works || []).length);
+        const saveDraft = () => {
+            const d = snap();
+            Store.set('reportDraft', filled(d) ? d : null);
+            $('[data-a="clr"]').hidden = !filled(d);
+        };
+        const dr = Store.get('reportDraft', null);
+        if (dr && dr.d === today && filled(dr)) {
+            if (dr.day && $('[data-k="day"]')) $('[data-k="day"]').value = dr.day;
+            (dr.works || []).forEach(i => {
+                const b = $(`[data-w="${i}"]`);
+                if (b && !b.classList.contains('pri')) b.click();
+            });
+            LKEYS.forEach(k => lists[k] && lists[k].set(dr.lists[k]));
+            $('[data-a="clr"]').hidden = false;
+        } else if (dr) Store.set('reportDraft', null);
+        const saveSoon = U.debounce(saveDraft, 300);
+        scrim.addEventListener('input', saveSoon);
+        scrim.addEventListener('change', saveSoon);
+        scrim.addEventListener('click', e => e.target.closest && e.target.closest('[data-w], [data-t]') && saveSoon());
+        $('[data-a="clr"]').onclick = () => {
+            LKEYS.forEach(k => lists[k] && lists[k].clear());
+            scrim.querySelectorAll('[data-w].pri').forEach(b => b.click());
+            Store.set('reportDraft', null);
+            $('[data-a="clr"]').hidden = true;
+            toast('Поля очищены', 'info');
+        };
         const go = async send => {
             const m = this.me();
             if (!m.nick) {
@@ -11007,6 +11061,9 @@ const Reports = {
                 bad = (on.includes(0) ? lists.mp.bad() : 0) + (stat.length ? lists.stat.bad() : 0);
             }
             if (send && bad && !confirm('Часть ссылок не открывается как картинка. Всё равно отправить?')) return;
+            // отправили — черновик больше не нужен; вставили — оставляем, вдруг поправить
+            if (send) Store.set('reportDraft', null);
+            else saveDraft();
             close();
             this.fill(kind, form, v, send, bar);
         };
@@ -13329,6 +13386,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.39',
+        ['Отчёты: заполненное запоминается — открыл окно снова, и ссылки, день и виды работы на месте. После «Вставить» черновик остаётся, после «Отправить» очищается, на следующий день начинается с чистого листа; есть кнопка «Очистить»']
     ],
     [
         '1.11.38',
