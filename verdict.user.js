@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.36
+// @version      1.11.37
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.36', // подставляет build.sh из @version
+    version: '1.11.37', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -12390,6 +12390,7 @@ const Lightbox = {
         ['mark', 'Маркер (M)', '<path d="M4 20h7l-2-2H6zM9 16l-2-2 9-9 4 4-9 9z"/>'],
         ['rect', 'Рамка (R)', '<path d="M3 5h18v14H3zm2 2v10h14V7z"/>'],
         ['arrow', 'Стрелка (A)', '<path d="M4 18.6L15.6 7H9V5h10v10h-2V8.4L5.4 20z"/>'],
+        ['mosaic', 'Мозаика (B) — скрыть область пикселями', '<path d="M3 3h6v6H3zm6 6h6v6H9zm6-6h6v6h-6zM3 15h6v6H3zm12 0h6v6h-6z"/>'],
         ['text', 'Текст (T)', '<path d="M4 4h16v4h-2V6h-5v12h2v2H9v-2h2V6H6v2H4z"/>']
     ],
     COLORS: ['#ff4d4f', '#ffd60a', '#34c759', '#4da3ff', '#ffffff'],
@@ -12604,7 +12605,7 @@ const Lightbox = {
             if (this.cur) {
                 const p = this.pt(e),
                     pts = this.cur.p;
-                if (pts.length === 2 && (this.cur.t === 'rect' || this.cur.t === 'arrow')) pts[1] = p;
+                if (pts.length === 2 && (this.cur.t === 'rect' || this.cur.t === 'arrow' || this.cur.t === 'mosaic')) pts[1] = p;
                 else {
                     const l = pts[pts.length - 1];
                     if (Math.hypot(p[0] - l[0], p[1] - l[1]) * this.z < 2) return;
@@ -12666,7 +12667,7 @@ const Lightbox = {
                 return;
             }
             const k = (e.key || '').toLowerCase();
-            const keys = { v: 'move', м: 'move', p: 'pen', з: 'pen', m: 'mark', ь: 'mark', r: 'rect', к: 'rect', a: 'arrow', ф: 'arrow', t: 'text', е: 'text' };
+            const keys = { v: 'move', м: 'move', p: 'pen', з: 'pen', m: 'mark', ь: 'mark', r: 'rect', к: 'rect', a: 'arrow', ф: 'arrow', t: 'text', е: 'text', b: 'mosaic', и: 'mosaic' };
             if (e.key === 'Escape') this.close();
             else if (e.key === 'ArrowLeft') this.act('prev');
             else if (e.key === 'ArrowRight') this.act('next');
@@ -12751,8 +12752,10 @@ const Lightbox = {
         svg.setAttribute('height', h);
         svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
         const line = s => `fill="none" stroke="${s.c}" stroke-width="${s.w}" stroke-linecap="round" stroke-linejoin="round"`;
+        const src = String(this.img.currentSrc || this.img.src || '').replace(/"/g, '&quot;');
         svg.innerHTML = this.shapes
-            .map(s => {
+            .map((s, i) => {
+                const live = s === this.cur;
                 const c = /^#[0-9a-f]{6}$/i.test(s.c) ? s.c : '#ff4d4f';
                 s = { ...s, c, w: +s.w || 3 };
                 const P = s.p || [];
@@ -12770,6 +12773,26 @@ const Lightbox = {
                     const h1 = [b[0] - L * Math.cos(ang - 0.45), b[1] - L * Math.sin(ang - 0.45)],
                         h2 = [b[0] - L * Math.cos(ang + 0.45), b[1] - L * Math.sin(ang + 0.45)];
                     return `<path d="M${a.join(' ')}L${b.join(' ')}M${h1.join(' ')}L${b.join(' ')}L${h2.join(' ')}" ${line(s)}/>`;
+                }
+                // мозаика: та же картинка, обрезанная по области, через фильтр «пиксели» (картинка не меняется — это слой поверх)
+                if (s.t === 'mosaic') {
+                    const [a, b] = P;
+                    const x = Math.max(0, Math.min(a[0], b[0])),
+                        y = Math.max(0, Math.min(a[1], b[1])),
+                        rw = Math.min(w, Math.max(a[0], b[0])) - x,
+                        rh = Math.min(h, Math.max(a[1], b[1])) - y;
+                    if (rw < 2 || rh < 2 || !src) return '';
+                    // размер «пикселя» — от размера области: большая — крупные квадраты, маленькая — мелкие
+                    const S = Math.max(4, Math.min(64, Math.round(Math.min(rw, rh) / 9)));
+                    // сначала размываем (цвет квадрата — средний по нему, как в редакторах скриншотов), потом берём по точке на квадрат
+                    return `<defs><clipPath id="vdm${i}"><rect x="${x}" y="${y}" width="${rw}" height="${rh}"/></clipPath>
+                        <filter id="vdp${i}" x="${x - S}" y="${y - S}" width="${rw + 2 * S}" height="${rh + 2 * S}" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+                        <feGaussianBlur in="SourceGraphic" stdDeviation="${S / 2.5}" result="b"/>
+                        <feFlood x="${x + S / 2}" y="${y + S / 2}" width="1" height="1"/><feComposite width="${S}" height="${S}"/><feTile result="a"/>
+                        <feComposite in="b" in2="a" operator="in"/><feMorphology operator="dilate" radius="${S / 2}"/></filter></defs>
+                        <g clip-path="url(#vdm${i})"><image href="${src}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none" filter="url(#vdp${i})"/></g>${
+                            live ? `<rect x="${x}" y="${y}" width="${rw}" height="${rh}" fill="none" stroke="#fff" stroke-width="${1.5 / this.z}" stroke-dasharray="${6 / this.z} ${4 / this.z}"/>` : ''
+                        }`;
                 }
                 if (s.t === 'text' && P[0])
                     return `<text x="${P[0][0]}" y="${P[0][1]}" font-size="${+s.s || 22}" font-weight="700" font-family="Segoe UI,system-ui,sans-serif" fill="${c}" stroke="rgba(0,0,0,.75)" stroke-width="${(+s.s || 22) * 0.16}" paint-order="stroke" stroke-linejoin="round">${U.esc(String(s.v || ''))}</text>`;
@@ -13295,6 +13318,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.37',
+        ['Просмотр доказательств: инструмент «Мозаика» (B) — выделяешь область, и она сразу скрывается пикселями; чем больше область, тем крупнее квадраты. Отменяется, как и другие пометки (Ctrl+Z)']
     ],
     [
         '1.11.36',
