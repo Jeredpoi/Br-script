@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.37
+// @version      1.11.38
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.37', // подставляет build.sh из @version
+    version: '1.11.38', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5543,7 +5543,8 @@ const UI_CSS = `
 .vd-ll-row { display: flex; align-items: center; gap: 8px; }
 .vd-ll-row .inp { flex: 1; height: 36px; }
 .vd-ll-prev { width: 48px; height: 36px; flex: none; border-radius: 7px; border: 1px solid var(--line); background: rgba(255,255,255,.04); overflow: hidden; }
-.vd-ll-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vd-ll-prev img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; transition: transform .15s; }
+.vd-ll-prev img:hover { transform: scale(1.08); }
 .vd-ll-row.ok .vd-ll-prev { border-color: #2fbf71; }
 .vd-ll-row.bad .vd-ll-prev, .vd-ll-row.bad .inp { border-color: #e5484d; }
 .vd-ll-up { flex: none; width: 36px; height: 36px; }
@@ -10753,6 +10754,16 @@ const Reports = {
                       im.onload = () => (row.classList.add('ok'), onChange());
                       im.onerror = () => (row.classList.add('bad'), onChange());
                       im.src = img;
+                      im.title = 'Открыть крупно';
+                      // клик — фото крупно; стрелками листаются все фото этого отчёта (видимые поля, по порядку)
+                      im.onclick = e => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const scope = box.closest('.vd-rep') || box;
+                          const rows = [...scope.querySelectorAll('.vd-ll-row')].filter(r => r.dataset.src && r.offsetParent && r.classList.contains('ok'));
+                          const list = rows.map(r => r.dataset.src);
+                          Lightbox.open(list.length ? list : [img], Math.max(0, rows.indexOf(row)));
+                      };
                       prev.appendChild(im);
                   });
             return row._p;
@@ -13318,6 +13329,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.38',
+        ['Отчёты (Норма / Доп. репорт): клик по миниатюре справа от поля открывает фото крупно; стрелками ← → листаются все фото отчёта по порядку, Esc закрывает только просмотр']
     ],
     [
         '1.11.37',
