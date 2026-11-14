@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.40
+// @version      1.11.41
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.40', // подставляет build.sh из @version
+    version: '1.11.41', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5572,6 +5572,8 @@ const UI_CSS = `
 .vd-norm-prev img { width: 84px; height: 56px; object-fit: cover; border-radius: 7px; border: 1px solid var(--line); background: rgba(255,255,255,.04); }
 .vd-norm-prev img.bad { border-color: #e5484d; box-shadow: 0 0 0 1px #e5484d; }
 textarea.inp { width: 100%; resize: vertical; font: inherit; }
+/* узкий экран: «Очистить» — только значок, чтобы «Вставить» и «Отправить» остались в одной строке */
+@media (max-width: 520px) { .vd-rep .btns [data-a="clr"] { font-size: 0; gap: 0; width: 34px; padding: 0; } }
 
 :host { all: initial; }
 * { box-sizing: border-box; }
@@ -5662,8 +5664,15 @@ input, textarea, select { font: inherit; color: var(--tx); }
 @container (max-width: 860px) {
   .bar-row > .verdicts { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   .bar-row > .verdicts::-webkit-scrollbar { display: none; }
-  .bar-row > .verdicts { -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent); mask-image: linear-gradient(90deg, #000 82%, transparent); padding-right: 28px; }
+  /* что строка прокручивается, видно сразу: затухание у края и кнопка «›» (только пока справа есть ещё чипы) */
+  .bar-row > .verdicts.more { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 76px), transparent calc(100% - 30px), #000 calc(100% - 30px)); mask-image: linear-gradient(90deg, #000 calc(100% - 76px), transparent calc(100% - 30px), #000 calc(100% - 30px)); }
+  .bar-row > .verdicts.less { -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px); mask-image: linear-gradient(90deg, transparent, #000 36px); }
+  .bar-row > .verdicts.less.more { -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 76px), transparent calc(100% - 30px), #000 calc(100% - 30px)); mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 76px), transparent calc(100% - 30px), #000 calc(100% - 30px)); }
+  .verdicts.more .vmore { display: grid; }
 }
+.vmore { display: none; position: sticky; right: 0; flex: none; align-self: center; width: 26px; height: 26px; margin-left: 4px; place-items: center; border-radius: 50%; color: var(--tx); background: color-mix(in srgb, var(--acc) 22%, #16181e); border: 1px solid var(--line-2); box-shadow: 0 4px 12px -4px rgba(0,0,0,.7); }
+.vmore .vi { transform: rotate(-90deg); }
+.vmore:hover { background: color-mix(in srgb, var(--acc) 40%, #16181e); }
 @container (max-width: 620px) {
   .bar .hint-lead { display: none; }
   .bar .who { flex-basis: 100%; }
@@ -5969,6 +5978,8 @@ input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var
   .side-brand, .side-foot { display: none; }
   .tabs { flex-direction: row; overflow-x: auto; padding: 8px; }
   .tab span { white-space: nowrap; }
+  /* вкладки в строку: отметка активной снизу, а не слева */
+  .tab.on { box-shadow: inset 0 -2px 0 var(--acc); }
   .grid2, .split, .roles { grid-template-columns: 1fr; }
   .facts { display: none; }
   .modal { height: 92vh; }
@@ -6921,6 +6932,7 @@ class ReplyBar {
               ${Page.isThread() ? fwChip : ''}
               ${count(['none']) ? `<button class="chip ghost" data-v="none" style="--c:${VERDICTS.none.color}">${vicon('none')}Свой текст</button>` : ''}
               ${freq ? `<button class="chip ghost" data-g="freq" style="--c:var(--acc)"><span class="vic" style="--c:var(--acc)">${icon('star', 13)}</span>Частые</button>` : ''}
+              <button class="vmore" tabindex="-1" aria-hidden="true" title="Ещё ответы">${icon('down', 14)}</button>
               </div>
               <span class="tools">
                 ${Reports.allowed() ? `<button class="icon-btn vd-rep-btn" data-a="report" title="Норма / доп. репорт — вставить отчёт в это поле">${icon('check')}</button>` : ''}
@@ -6932,6 +6944,17 @@ class ReplyBar {
             <div class="bar-row hints-row"></div>
         </div>`;
         this.renderHints();
+        // узкая панель: вердикты прокручиваются вбок — показываем край и «›», пока справа есть ещё чипы
+        const vs = this.root.querySelector('.verdicts');
+        const edges = () => {
+            vs.classList.toggle('more', vs.scrollLeft + vs.clientWidth < vs.scrollWidth - 4);
+            vs.classList.toggle('less', vs.scrollLeft > 4);
+        };
+        vs.addEventListener('scroll', edges, { passive: true });
+        this.root.querySelector('.vmore').onclick = () => vs.scrollBy({ left: Math.max(120, vs.clientWidth * 0.7), behavior: 'smooth' });
+        if (this._vro) this._vro.disconnect();
+        this._vro = new ResizeObserver(edges);
+        this._vro.observe(vs);
         const hoverOpen = (el, open) => {
             el.addEventListener('mouseenter', () => {
                 Picker._cancelClose();
@@ -10233,8 +10256,11 @@ const SettingsUI = {
         ubtn.onclick = async () => {
             if (Updater.available()) return Updater.install();
             ubtn.disabled = true;
+            const was = ubtn.innerHTML;
+            ubtn.innerHTML = `${icon('clock', 14)}Проверяю…`;
             const v = await Updater.check(true);
             ubtn.disabled = false;
+            ubtn.innerHTML = was;
             if (!v) toast('Не удалось проверить обновления', 'err');
             else if (!Updater.available()) toast(`У тебя последняя версия ${BRAND.version}`);
             this.draw();
@@ -10261,8 +10287,11 @@ const SettingsUI = {
             lb.onclick = async () => {
                 if (lb.dataset.v) return LogsUpdate.install();
                 lb.disabled = true;
+                const was = lb.innerHTML;
+                lb.innerHTML = `${icon('clock', 14)}Проверяю…`;
                 const r = await LogsUpdate.check();
                 lb.disabled = false;
+                lb.innerHTML = was;
                 if (r.err) return toast('Не удалось проверить: ' + r.err, 'err');
                 if (Updater.newer(r.v, lv)) {
                     lb.dataset.v = r.v;
@@ -11559,23 +11588,29 @@ const Updater = {
         if (!force && Date.now() - Store.get('updChecked', 0) < 2 * 3600e3)
             return Promise.resolve(Store.get('updLatest', null));
         Store.set('updChecked', Date.now());
-        return new Promise(res =>
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: `${BRAND.update}/verdict.user.js?t=${Date.now()}`,
-                headers: { Range: 'bytes=0-1499' },
-                timeout: 20000,
-                onload: r => {
-                    const m =
-                        (r.status === 200 || r.status === 206) && /@version\s+([\d.]+)/.exec(r.responseText || '');
-                    // не опускаем версию ниже разосланной: raw GitHub может отставать на несколько минут
-                    if (m && !this.newer(Store.get('updLatest', '0.0.0'), m[1])) Store.set('updLatest', m[1]);
-                    res(m ? m[1] : null);
-                },
-                onerror: () => res(null),
-                ontimeout: () => res(null)
-            })
-        );
+        // версия — из маленького verdict.meta.js (~1 КБ); сам скрипт (~0,8 МБ) качался целиком: GitHub не всегда
+        // соблюдает Range, особенно с меткой против кэша — отсюда долгая проверка
+        const get = (file, extra) =>
+            new Promise(res =>
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${BRAND.update}/${file}?t=${Date.now()}`,
+                    timeout: 10000,
+                    ...extra,
+                    onload: r => {
+                        const m = (r.status === 200 || r.status === 206) && /@version\s+([\d.]+)/.exec(String(r.responseText || '').slice(0, 4000));
+                        res(m ? m[1] : null);
+                    },
+                    onerror: () => res(null),
+                    ontimeout: () => res(null)
+                })
+            );
+        return (async () => {
+            const v = (await get('verdict.meta.js')) || (await get('verdict.user.js', { headers: { Range: 'bytes=0-1499' } }));
+            // не опускаем версию ниже разосланной: raw GitHub может отставать на несколько минут
+            if (v && !this.newer(Store.get('updLatest', '0.0.0'), v)) Store.set('updLatest', v);
+            return v;
+        })();
     },
     available() {
         const v = Store.get('updLatest', null);
@@ -12511,7 +12546,9 @@ const Lightbox = {
             .bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:10px 14px;
                 background:linear-gradient(rgba(0,0,0,.6),transparent);z-index:3}
             .cnt{font-weight:700;min-width:46px}
-            .src{flex:1;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            .cnt:empty{display:none}
+            .src{flex:1;min-width:0;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            .bar .short{display:none}
             .zoom{opacity:.8;min-width:48px;text-align:right}
             button{all:unset;cursor:pointer;padding:7px 11px;border-radius:9px;background:rgba(255,255,255,.1);font-weight:600;
                 transition:background .12s}
@@ -12547,7 +12584,11 @@ const Lightbox = {
             .tin{position:absolute;z-index:4;min-width:60px;padding:2px 4px;border:0;outline:1px dashed rgba(255,255,255,.6);border-radius:4px;
                 background:rgba(0,0,0,.35);font:700 22px/1.2 "Segoe UI",system-ui,sans-serif;user-select:text}
             .hint{position:absolute;bottom:70px;left:0;right:0;text-align:center;opacity:.45;font-size:12px;z-index:2;pointer-events:none}
-            @media (max-width:640px){.bar button[data-a="copy"],.zoom,.hint{display:none}.tools{bottom:10px;width:max-content;max-width:calc(100% - 20px);flex-wrap:wrap;justify-content:center;gap:2px;padding:5px}.tools button{width:30px;height:30px}.sw{width:18px!important;height:18px!important;margin:0 4px}.sep{margin:0 2px}}
+            @media (max-width:640px){.bar button[data-a="copy"],.zoom,.hint{display:none}
+                /* узкий экран: имя сайта не сжимается до «cdn....» — кнопки короче, счётчик без лишней ширины */
+                .bar{gap:6px;padding:10px}.bar button{padding:7px 10px}.cnt{min-width:0}.bar .long{display:none}.bar .short{display:inline}
+                /* панель на две строки: второй разделитель — перенос строки, а не чёрточка в конце первой */
+                .tools .sep.br{flex-basis:100%;height:0;margin:0}.tools{bottom:10px;width:max-content;max-width:calc(100% - 20px);flex-wrap:wrap;justify-content:center;gap:2px;padding:5px}.tools button{width:30px;height:30px}.sw{width:18px!important;height:18px!important;margin:0 4px}.sep{margin:0 2px}}
         </style>
         <div class="bg">
             <div class="stage"><img alt="" draggable="false"><svg class="ink" xmlns="http://www.w3.org/2000/svg"></svg></div>
@@ -12556,7 +12597,7 @@ const Lightbox = {
                 <span class="cnt"></span><span class="src"></span><span class="zoom"></span>
                 <button data-a="fit" title="По размеру окна (0, двойной клик или нажатие колеса)">По размеру</button>
                 <button data-a="copy">Копировать ссылку</button>
-                <button data-a="tab">Открыть оригинал</button>
+                <button data-a="tab" title="Открыть оригинал в новой вкладке"><span class="long">Открыть оригинал</span><span class="short">Оригинал</span></button>
                 <button data-a="x" title="Закрыть просмотр (Esc)">✕</button>
             </div>
             <button class="nav prev" data-a="prev">‹</button><button class="nav next" data-a="next">›</button>
@@ -12565,7 +12606,7 @@ const Lightbox = {
                 ${this.TOOLS.map(([k, t, p]) => `<button data-tool="${k}" title="${t}">${ico(p)}</button>`).join('')}
                 <span class="sep"></span>
                 ${this.COLORS.map(c => `<button class="sw" data-color="${c}" style="--c:${c};background:${c}" title="Цвет"></button>`).join('')}
-                <span class="sep"></span>
+                <span class="sep br"></span>
                 <button data-a="undo" title="Отменить (Ctrl+Z)">${ico('<path d="M12.5 8c-2.6 0-5 1-6.9 2.6L2 7v9h9l-3.6-3.6A8 8 0 0120.4 16l2.4-.8A10.5 10.5 0 0012.5 8z"/>')}</button>
                 <button data-a="clear" title="Стереть все пометки на этом фото">${ico('<path d="M6 7h12l-1 14H7zm3-4h6l1 2h4v2H4V5h4z"/>')}</button>
                 <button data-a="note" title="Заметка к фото">${ico('<path d="M5 3h10l4 4v14H5zm9 1.5V8h3.5zM8 11v2h8v-2zm0 4v2h6v-2z"/>')}</button>
@@ -13397,8 +13438,12 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
-        '1.11.16',
-        ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+        '1.11.41',
+        [
+            'Проверка обновлений в «О скрипте» быстрее: читается маленький файл с версией, на кнопке видно «Проверяю…»',
+            'Телефон: у панели ответов кнопка «›» — видно, что вердикты прокручиваются; просмотр доказательств, отчёт и настройки аккуратнее на узком экране',
+            '«Что нового» снова по порядку версий'
+        ]
     ],
     [
         '1.11.40',
@@ -13498,6 +13543,10 @@ const CHANGES = [
     [
         '1.11.20',
         ['Доп. репорт: «МП» — поле для фото, вставил — снизу сразу следующее (одна МП — одно фото, количество считается само); «Онлайн» и «Реакция» — одно общее фото статистики. В норме доказательства так же — по ссылке в строке, с превью']
+    ],
+    [
+        '1.11.16',
+        ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
     ],
     [
         '1.11.15',
