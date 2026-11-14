@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.39
+// @version      1.11.40
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -61,7 +61,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.39', // подставляет build.sh из @version
+    version: '1.11.40', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -5543,6 +5543,7 @@ const UI_CSS = `
 .vd-ll-row { display: flex; align-items: center; gap: 8px; }
 .vd-ll-row .inp { flex: 1; height: 36px; }
 .vd-ll-prev { width: 48px; height: 36px; flex: none; border-radius: 7px; border: 1px solid var(--line); background: rgba(255,255,255,.04); overflow: hidden; }
+.vd-ll-prev:empty { display: none; }
 .vd-ll-prev img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; transition: transform .15s; }
 .vd-ll-prev img:hover { transform: scale(1.08); }
 .vd-ll-row.ok .vd-ll-prev { border-color: #2fbf71; }
@@ -5656,7 +5657,7 @@ input, textarea, select { font: inherit; color: var(--tx); }
 @container (max-width: 980px) {
   .bar-row > .verdicts { gap: 2px; }
   .bar-row > .verdicts .chip .cnt { display: none; }
-  .bar.docked .chip { padding: 0 8px 0 4px; gap: 6px; }
+  .bar.docked .chip { padding: 0 10px 0 4px; gap: 6px; }
 }
 @container (max-width: 860px) {
   .bar-row > .verdicts { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
@@ -5670,10 +5671,10 @@ input, textarea, select { font: inherit; color: var(--tx); }
 }
 
 /* выбор ответа: список + живой предпросмотр */
-.picker { position: fixed; z-index: 2147483000; display: flex; width: 720px; height: min(480px, 72vh); border-radius: 16px; background: color-mix(in srgb, var(--bg-2) calc(var(--ui-alpha, .96) * 100%), transparent); backdrop-filter: blur(22px) saturate(1.3); -webkit-backdrop-filter: blur(22px) saturate(1.3); box-shadow: var(--sh); overflow: hidden; animation: pop .18s var(--ease); }
+.picker { position: fixed; z-index: 2147483000; display: flex; width: 780px; height: min(480px, 72vh); border-radius: 16px; background: color-mix(in srgb, var(--bg-2) calc(var(--ui-alpha, .96) * 100%), transparent); backdrop-filter: blur(22px) saturate(1.3); -webkit-backdrop-filter: blur(22px) saturate(1.3); box-shadow: var(--sh); overflow: hidden; animation: pop .18s var(--ease); }
 .picker.solo { width: 360px; }
 @keyframes pop { from { opacity: 0; transform: translateY(-6px) scale(.985); } }
-.pk-list { width: 340px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--line); min-height: 0; }
+.pk-list { width: 390px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--line); min-height: 0; }
 .picker.solo .pk-list { width: 100%; border-right: 0; }
 .pk-head { display: flex; align-items: center; gap: 9px; padding: 11px 12px; border-bottom: 1px solid var(--line); }
 .pk-head .ttl { font-weight: 750; font-size: 12.5px; }
@@ -5758,11 +5759,11 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .item.fit { background: color-mix(in srgb, var(--c) 6%, transparent); }
 .item.fit .t small { color: color-mix(in srgb, var(--c) 45%, var(--tx-2)); }
 .item.rec { box-shadow: inset 2px 0 0 #ffd166; }
-.chip .fit-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--tx-2); box-shadow: 0 0 0 2px var(--bg); }
+.chip .fit-dot { position: absolute; top: 3px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--tx-2); box-shadow: 0 0 0 2px var(--bg); }
 .chip .fit-dot.rec { background: #ffd166; box-shadow: 0 0 0 2px var(--bg), 0 0 8px #ffd166; }
 .hint.maybe { border-style: dashed; background: transparent; }
 .hint.more { padding: 0 10px 0 12px; color: var(--tx-2); border-style: dashed; background: transparent; }
-.item .bolt { opacity: 0; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--tx-2); }
+.item .bolt { opacity: 0; width: 26px; height: 26px; flex: none; border-radius: 8px; display: grid; place-items: center; color: var(--tx-2); }
 .item:hover .bolt, .item.sel .bolt { opacity: 1; }
 /* на тач-экранах невидимые кнопки строки не должны ловить нажатия */
 @media (hover: none) {
@@ -5822,6 +5823,16 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .row:last-child { border-bottom: 0; }
 .row .lbl { flex: 1; }
 .row .lbl small { display: block; color: var(--tx-3); font-size: 11.5px; }
+.ck-rows .row { padding: 10px 0; }
+.ck-rows .vic.sm { width: 22px; height: 22px; border-radius: 7px; }
+.ck-rows .st-fail .vic, .ck-rows .st-warn .vic { background: color-mix(in srgb, var(--c) 24%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent); }
+.ck-rows .st-fail .lbl small { color: color-mix(in srgb, #e5484d 72%, var(--tx-2)); }
+.ck-rows .st-warn .lbl small { color: color-mix(in srgb, #f5a524 68%, var(--tx-2)); }
+.ck-rows .st-ok .lbl, .ck-rows .st-manual .lbl { color: var(--tx-2); }
+.ck-rows .st-ok .lbl b, .ck-rows .st-manual .lbl b { color: var(--tx-2); }
+.ck-n { font-weight: 700; }
+.ck-n.fail { color: #ff7b7f; }
+.ck-n.warn { color: #f5b544; }
 .inp, select.inp, textarea.inp { width: 100%; background: rgba(0,0,0,.25); border: 1px solid var(--line-2); border-radius: var(--r-s); padding: 9px 11px; outline: none; transition: border-color .15s, box-shadow .15s; }
 .inp:focus { border-color: color-mix(in srgb, var(--acc) 60%, transparent); box-shadow: 0 0 0 3px var(--acc-a); }
 textarea.inp { min-height: 150px; resize: vertical; line-height: 1.5; }
@@ -5919,10 +5930,10 @@ input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var
 .role-lnk:hover { text-decoration: underline; }
 .ag-prev { margin: 2px 0; max-height: 220px; overflow: auto; }
 .who { font-size: 11.5px; font-weight: 600; color: var(--tx-3); margin-right: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item .edit { opacity: 0; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--tx-3); }
+.item .edit { opacity: 0; width: 26px; height: 26px; flex: none; border-radius: 8px; display: grid; place-items: center; color: var(--tx-3); }
 .item:hover .edit { opacity: 1; }
 .item .edit:hover { background: rgba(255,255,255,.08); color: var(--tx); }
-.item .hide { opacity: 0; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--tx-3); }
+.item .hide { opacity: 0; width: 26px; height: 26px; flex: none; border-radius: 8px; display: grid; place-items: center; color: var(--tx-3); }
 .item:hover .hide { opacity: 1; }
 .item .hide:hover { background: rgba(255,255,255,.08); color: var(--tx); }
 .toast-act { margin-left: 6px; padding: 5px 10px; border-radius: 8px; background: rgba(255,255,255,.08); font-weight: 700; font-size: 12px; }
@@ -7011,7 +7022,7 @@ class ReplyBar {
             const wait = p.filter(r => r.state === 'wait').length,
                 bad = p.filter(r => r.state === 'dead' || r.state === 'private').length,
                 ok = p.filter(r => r.state === 'ok').length;
-            const c = bad ? VERDICTS.deny.color : wait ? 'var(--tx-3)' : VERDICTS.approve.color;
+            const c = bad ? VERDICTS.deny.color : wait || !ok ? 'var(--tx-3)' : VERDICTS.approve.color;
             parts.push(
                 `<button class="hint" data-a="proofs" style="--c:${c}" title="Открываются ли ссылки из темы — нажми, чтобы увидеть каждую">${icon('shield', 13)}Доказательства: ${wait ? 'проверяю… ' : ''}✓${ok}${bad ? ' · ✗' + bad : ''}</button>`
             );
@@ -7549,7 +7560,8 @@ const BioPanel = {
         const rows = report.res
             .map(r => {
                 const [ic, c] = mark[r.status];
-                return `<div class="row"><span class="vic sm" style="--c:${c}">${icon(ic, 11)}</span>
+                // статус строки — класс st-*: нарушения и сомнения выделены цветом пояснения
+                return `<div class="row st-${r.status}"><span class="vic sm" style="--c:${c}">${icon(ic, 11)}</span>
                     <div class="lbl"><b>${r.rule === 'форма' ? 'Форма' : /^крит/.test(r.rule) ? 'Критерий' : r.rule}</b> · ${U.esc(r.name)}${r.note ? `<small>${U.esc(r.note)}</small>` : ''}</div></div>`;
             })
             .join('');
@@ -7557,17 +7569,17 @@ const BioPanel = {
             U.h(`<div class="scrim"><div class="modal sm">
             <div class="m-head"><span class="vic" style="--c:var(--acc);width:34px;height:34px;border-radius:10px">${icon('shield', 16)}</span>
               <div><div class="m-title">Проверка ${U.esc(ck.title)}</div>
-                <div class="m-sub">${report.words} слов · нарушений ${report.fails}, сомнительно ${report.warns}</div></div>
+                <div class="m-sub">${report.words} слов${report.fails ? ` · <b class="ck-n fail">нарушений ${report.fails}</b>` : ''}${report.warns ? ` · <b class="ck-n warn">сомнительно ${report.warns}</b>` : ''}</div></div>
               <span style="flex:1"></span><button class="icon-btn" data-a="x">${icon('x')}</button></div>
             <div class="pane">
-              <div class="card">${rows}</div>
-              <div class="sec" style="margin:14px 0 0"><div class="spell muted" style="font-size:12px"></div></div>
+              <div class="card ck-rows">${rows}</div>
+              <div class="sec" style="margin:14px 0 0" hidden><div class="spell muted" style="font-size:12px"></div></div>
               <div class="btns" style="margin-top:14px">
                 <button class="btn" data-a="spell">${icon('search', 14)}Орфография (Яндекс)</button>
                 <span style="flex:1"></span>
-                <button class="btn" data-a="approve">${icon('check', 14)}Одобрить</button>
+                <button class="btn ${report.fails ? '' : 'pri'}" data-a="approve">${icon('check', 14)}Одобрить</button>
                 <button class="btn" data-a="fix">${icon('clock', 14)}На доработку</button>
-                <button class="btn pri" data-a="deny">${icon('x', 14)}Отказать с причинами</button>
+                <button class="btn ${report.fails ? 'pri' : ''}" data-a="deny">${icon('x', 14)}Отказать с причинами</button>
               </div>
             </div></div></div>`)
         );
@@ -7585,6 +7597,7 @@ const BioPanel = {
         scrim.querySelector('[data-a="spell"]').onclick = async e => {
             const btn = e.currentTarget;
             btn.disabled = true;
+            spellBox.parentNode.hidden = false;
             spellBox.textContent = 'Проверяю…';
             try {
                 const errs = await BioCheck.spell(report.text);
@@ -12514,7 +12527,7 @@ const Lightbox = {
             .tools{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;
                 padding:6px;border-radius:14px;background:rgba(22,24,30,.82);border:1px solid rgba(255,255,255,.1);
                 box-shadow:0 10px 30px rgba(0,0,0,.45);backdrop-filter:blur(10px);z-index:3}
-            .tools button{width:34px;height:34px;padding:0;display:grid;place-items:center;border-radius:10px;background:transparent}
+            .tools button{flex:none;width:34px;height:34px;padding:0;display:grid;place-items:center;border-radius:10px;background:transparent}
             .tools button:hover{background:rgba(255,255,255,.1)}
             .tools button.on{background:${acc};color:#fff}
             .tools svg{width:18px;height:18px;fill:currentColor}
@@ -12533,8 +12546,8 @@ const Lightbox = {
             textarea:focus{background:rgba(255,255,255,.1);box-shadow:0 0 0 1px ${acc}}
             .tin{position:absolute;z-index:4;min-width:60px;padding:2px 4px;border:0;outline:1px dashed rgba(255,255,255,.6);border-radius:4px;
                 background:rgba(0,0,0,.35);font:700 22px/1.2 "Segoe UI",system-ui,sans-serif;user-select:text}
-            .hint{position:absolute;bottom:62px;left:0;right:0;text-align:center;opacity:.45;font-size:12px;z-index:2;pointer-events:none}
-            @media (max-width:640px){.bar button[data-a="copy"],.zoom,.hint{display:none}.tools{bottom:10px;max-width:calc(100% - 20px);overflow-x:auto}}
+            .hint{position:absolute;bottom:70px;left:0;right:0;text-align:center;opacity:.45;font-size:12px;z-index:2;pointer-events:none}
+            @media (max-width:640px){.bar button[data-a="copy"],.zoom,.hint{display:none}.tools{bottom:10px;width:max-content;max-width:calc(100% - 20px);flex-wrap:wrap;justify-content:center;gap:2px;padding:5px}.tools button{width:30px;height:30px}.sw{width:18px!important;height:18px!important;margin:0 4px}.sep{margin:0 2px}}
         </style>
         <div class="bg">
             <div class="stage"><img alt="" draggable="false"><svg class="ink" xmlns="http://www.w3.org/2000/svg"></svg></div>
@@ -13386,6 +13399,10 @@ const CHANGES = [
     [
         '1.11.16',
         ['Норма / доп. репорт: ник, должность и уровень прав берутся с форума сами (плашки у твоих сообщений или профиль), ссылки ВК, yapx, prnt.sc и других хостингов вставляются картинками, дата как на форуме (01.11.26), кнопка стала маленькой, видна и кураторам']
+    ],
+    [
+        '1.11.40',
+        ['Визуал: в проверке биографий и RP нарушения и сомнения выделены цветом, основная кнопка — по итогу проверки; в списке ответов названия видны целиком; просмотр доказательств и отчёт удобнее на телефоне']
     ],
     [
         '1.11.39',
