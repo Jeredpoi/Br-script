@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.43
+// @version      1.11.44
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -40,6 +40,7 @@
 // @connect      assets.mixkit.co
 // @connect      images.pexels.com
 // @connect      upload.wikimedia.org
+// @connect      i.ytimg.com
 // @connect      *
 // @run-at       document-start
 // @noframes
@@ -64,7 +65,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.43', // подставляет build.sh из @version
+    version: '1.11.44', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -4167,6 +4168,7 @@ const Wallpaper = {
         if (wall.kind === 'url' && wall.url) return wall.url;
         // видео без анимации (экономия, сайт логов) — его кадр
         if (wall.kind === 'video' && wall.id) return MIXKIT(wall.id).poster;
+        if (wall.kind === 'yt' && wall.id) return YT_POSTER(wall.id);
         if (wall.kind === 'photo') {
             const p = Store.get('photos', []).find(x => x.id === wall.id);
             if (p) return p.src;
@@ -10642,6 +10644,8 @@ const MIXKIT = (id, q = 720) => ({
 });
 const vd = (cat, name, id, accent, accent2, extra) =>
     Object.assign({ cat, name, video: id, accent, accent2, fx: 'none', dim: 0.35 }, extra || {});
+// ролик с YouTube фоном: встроенный плеер без звука, по кругу; кадр-превью — обложка ролика
+const YT_POSTER = (id, big = true) => `https://i.ytimg.com/vi/${id}/${big ? 'maxresdefault' : 'hqdefault'}.jpg`;
 // фото Pexels (бесплатная лицензия): файл отдаётся напрямую нужной ширины
 const PEXELS = (id, w = 1920) => `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&w=${w}`;
 const px = (cat, name, id, accent, accent2, extra) =>
@@ -10723,6 +10727,7 @@ const THEME_PRESETS = [
     gn('cars', 'На скорости', 'speed', 3601, '#ff3b3b', '#c8cdd6', 'none', { was: '2QIQhVB4sOE' }),
     gn('cars', 'RS6', 'taillights', 3603, '#e5484d', '#8b8f9a', 'rain', { was: 'krETJVsnWeA' }),
 
+    { cat: 'esport', name: 's1mple — автограф', yt: 'IQ2lQYIfKYc', accent: '#ffd400', accent2: '#5ab0ff', fx: 'none', dim: 0.45, author: 'YouTube' },
     // s1mple — фото с Wikimedia Commons (свободная лицензия)
     {
         cat: 'esport',
@@ -11484,6 +11489,7 @@ const SettingsUI = {
     /* Готовые темы */
     themeSrc(p, w = wallW()) {
         if (p.video) return MIXKIT(p.video, w > 640 ? 720 : 360).poster;
+        if (p.yt) return YT_POSTER(p.yt, w > 640);
         if (p.pexels) return PEXELS(p.pexels, Math.min(w, 2560));
         return p.photo ? UNSPLASH(p.photo, w) : p.url || null;
     },
@@ -11495,7 +11501,9 @@ const SettingsUI = {
             x.colors.accent2 = p.accent2 || '';
             const src = this.themeSrc(p);
             const [fg, fs] = CAT_FALLBACK[p.cat] || CAT_FALLBACK.dev;
-            x.theme.wall = p.video
+            x.theme.wall = p.yt
+                ? { kind: 'yt', id: p.yt, fb: { gen: fg, seed: fs } }
+                : p.video
                 ? { kind: 'video', id: p.video, fb: { gen: fg, seed: fs } }
                 : src
                   ? { kind: 'url', url: src, fb: { gen: fg, seed: fs } }
@@ -11578,7 +11586,9 @@ const SettingsUI = {
                 const on =
                     s.theme.enabled &&
                     s.accent === p.accent &&
-                    (p.video
+                    (p.yt
+                        ? w.kind === 'yt' && w.id === p.yt
+                        : p.video
                         ? w.kind === 'video' && w.id === p.video
                         : src
                           ? w.kind === 'url' && noW(w.url) === noW(src)
@@ -11587,7 +11597,7 @@ const SettingsUI = {
                 const card =
                     U.h(`<div class="wall ${on ? 'on' : ''}" role="button" style="--c:${p.accent}" title="${p.author ? `Фото: ${U.esc(p.author)}` : p.pexels ? 'Фото: Pexels' : p.video ? 'Видео: Mixkit' : 'Генеративный фон VERDICT'}">
                     ${p.star ? '<span class="tagc" style="background:var(--acc);color:#fff">★ ТОП</span>' : fxName ? `<span class="tagc">${icon(FX_EFFECTS[p.fx].icon, 10).replace('class="vi"', 'class="vi" style="display:inline;vertical-align:-1px"')} ${fxName}</span>` : ''}
-                    <div class="nm"><span class="dotc"></span><span class="dotc" style="--c:${p.accent2 || p.accent};margin-left:-10px"></span><span>${p.name}</span>${p.photo || p.pexels || p.url ? '<span class="muted">фото</span>' : p.video || p.live ? '<span class="muted">живой</span>' : ''}</div></div>`);
+                    <div class="nm"><span class="dotc"></span><span class="dotc" style="--c:${p.accent2 || p.accent};margin-left:-10px"></span><span>${p.name}</span>${p.photo || p.pexels || p.url ? '<span class="muted">фото</span>' : p.video || p.yt || p.live ? '<span class="muted">живой</span>' : ''}</div></div>`);
                 // молния живая, на превью рисуем застывшую
                 const bolt = /lightning|storm/.test(p.fx || '') ? `url(${Fx.stillBolt(400, 225, p.seed || 7)}), ` : '';
                 if (src) {
@@ -15584,6 +15594,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.44',
+        ['Киберспорт: живая тема «s1mple — автограф» — ролик, где s1mple расписывается на камере, идёт фоном без звука и по кругу. Если YouTube не отдаёт видео, остаётся его кадр']
+    ],
+    [
         '1.11.43',
         [
             '«Серпантин»: видно сами машины — тёмные силуэты с кабиной и стёклами, фары светят на дорогу, стоп-сигналы в пробках; есть фуры с габаритами и мотоциклы',
@@ -16238,8 +16252,10 @@ const Theme = {
                     Store.get('photos', []).find(p => p.id === w.id && p.scene);
                 // на сайте логов — без анимации: под большой таблицей она тормозит прокрутку
                 const vid = s.theme.rotate === 'off' && w.kind === 'video' && w.id;
+                const yt = s.theme.rotate === 'off' && w.kind === 'yt' && w.id;
                 if (scene && !Fx.reduced() && !IS_LOGS) this.setScene(scene);
                 else if (vid && !Fx.reduced() && !IS_LOGS) this.setVideo(vid);
+                else if (yt && !Fx.reduced() && !IS_LOGS && !Perf.light()) this.setYouTube(yt);
                 else if (G && G.road && !Fx.reduced() && !IS_LOGS) this.setRoad(w.seed);
                 else if (G && G.live && !Fx.reduced() && !IS_LOGS) this.setLive(w.seed);
                 // фон рисуется после первой отрисовки страницы: генерация (~200 мс при первом заходе) не задерживает форум
@@ -16327,6 +16343,88 @@ const Theme = {
                 v.pause();
                 v.removeAttribute('src');
                 v.load();
+            }
+        });
+    },
+
+    // ролик с YouTube: встроенный плеер без звука и кнопок, растянут на весь экран с обрезкой краёв (там надписи плеера)
+    setYouTube(id) {
+        const layer = document.createElement('div');
+        layer.className = 'vd-wl';
+        layer.style.backgroundImage = `url("${YT_POSTER(id)}")`;
+        layer.style.overflow = 'hidden';
+        const f = document.createElement('iframe');
+        const q = new URLSearchParams({
+            autoplay: 1,
+            mute: 1,
+            controls: 0,
+            loop: 1,
+            playlist: id,
+            playsinline: 1,
+            rel: 0,
+            iv_load_policy: 3,
+            disablekb: 1,
+            fs: 0,
+            modestbranding: 1,
+            enablejsapi: 1,
+            origin: location.origin
+        });
+        f.src = `https://www.youtube-nocookie.com/embed/${id}?${q}`;
+        f.allow = 'autoplay; encrypted-media';
+        f.tabIndex = -1;
+        f.setAttribute('aria-hidden', 'true');
+        f.style.cssText =
+            'position:absolute;left:50%;top:50%;width:max(100vw,177.78vh);height:max(100vh,56.25vw);transform:translate(-50%,-50%) scale(1.2);border:0;pointer-events:none;opacity:0;transition:opacity 1s';
+        // ролик проявляется, только когда плеер сообщил «играет»: недоступное видео или ошибка
+        // остаются под обложкой, а не надписью YouTube на весь экран
+        let shown = false;
+        const onMsg = e => {
+            if (e.source !== f.contentWindow) return;
+            let d;
+            try {
+                d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+            } catch {
+                return;
+            }
+            const st = d && d.info && d.info.playerState;
+            if (st === 1 && !shown) {
+                shown = true;
+                // первые мгновения плеер ещё рисует заголовок — даём ему исчезнуть
+                setTimeout(() => (f.style.opacity = '1'), 1200);
+            }
+            if (d && d.event === 'onError') f.style.opacity = '0';
+        };
+        addEventListener('message', onMsg);
+        f.onload = () => {
+            // подписка на события плеера без загрузки его библиотеки
+            let n = 0;
+            const ping = setInterval(() => {
+                if (shown || ++n > 20 || !f.isConnected) return clearInterval(ping);
+                try {
+                    f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'vd' }), '*');
+                } catch {
+                    clearInterval(ping);
+                }
+            }, 500);
+        };
+        layer.appendChild(f);
+        this.wall.appendChild(layer);
+        this._tok = (this._tok || 0) + 1;
+        Photo.wall(null);
+        const cmd = func => {
+            try {
+                f.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args: [] }), '*');
+            } catch {
+                /* плеер ещё не готов */
+            }
+        };
+        const vis = () => cmd(document.hidden ? 'pauseVideo' : 'playVideo');
+        document.addEventListener('visibilitychange', vis);
+        this.swap(layer, {
+            stop() {
+                document.removeEventListener('visibilitychange', vis);
+                removeEventListener('message', onMsg);
+                f.src = 'about:blank';
             }
         });
     },
