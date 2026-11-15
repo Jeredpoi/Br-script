@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.44
+// @version      1.11.45
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -65,7 +65,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.44', // подставляет build.sh из @version
+    version: '1.11.45', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -15594,6 +15594,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.45',
+        ['«s1mple — автограф»: ролик не обрывается в конце — плавно гаснет и так же плавно начинается заново']
+    ],
+    [
         '1.11.44',
         ['Киберспорт: живая тема «s1mple — автограф» — ролик, где s1mple расписывается на камере, идёт фоном без звука и по кругу. Если YouTube не отдаёт видео, остаётся его кадр']
     ],
@@ -16377,7 +16381,16 @@ const Theme = {
             'position:absolute;left:50%;top:50%;width:max(100vw,177.78vh);height:max(100vh,56.25vw);transform:translate(-50%,-50%) scale(1.2);border:0;pointer-events:none;opacity:0;transition:opacity 1s';
         // ролик проявляется, только когда плеер сообщил «играет»: недоступное видео или ошибка
         // остаются под обложкой, а не надписью YouTube на весь экран
-        let shown = false;
+        let shown = false,
+            fading = false,
+            dur = 0;
+        const send = (func, args = []) => {
+            try {
+                f.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
+            } catch {
+                /* плеер ещё не готов */
+            }
+        };
         const onMsg = e => {
             if (e.source !== f.contentWindow) return;
             let d;
@@ -16386,11 +16399,27 @@ const Theme = {
             } catch {
                 return;
             }
-            const st = d && d.info && d.info.playerState;
+            const info = (d && d.info) || {},
+                st = info.playerState;
             if (st === 1 && !shown) {
                 shown = true;
                 // первые мгновения плеер ещё рисует заголовок — даём ему исчезнуть
-                setTimeout(() => (f.style.opacity = '1'), 1200);
+                setTimeout(() => !fading && (f.style.opacity = '1'), 1200);
+            }
+            if (typeof info.duration === 'number' && info.duration > 0) dur = info.duration;
+            // конец ролика: плавно уводим его в кадр-обложку, перематываем на начало и проявляем снова — без рывка
+            if (typeof info.currentTime === 'number' && dur && info.currentTime > dur - 1.3 && !fading && shown) {
+                fading = true;
+                f.style.transition = 'opacity .9s';
+                f.style.opacity = '0';
+                setTimeout(() => {
+                    send('seekTo', [0, true]);
+                    send('playVideo');
+                    setTimeout(() => {
+                        f.style.opacity = '1';
+                        setTimeout(() => (fading = false), 1000);
+                    }, 700);
+                }, 950);
             }
             if (d && d.event === 'onError') f.style.opacity = '0';
         };
@@ -16411,14 +16440,7 @@ const Theme = {
         this.wall.appendChild(layer);
         this._tok = (this._tok || 0) + 1;
         Photo.wall(null);
-        const cmd = func => {
-            try {
-                f.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args: [] }), '*');
-            } catch {
-                /* плеер ещё не готов */
-            }
-        };
-        const vis = () => cmd(document.hidden ? 'pauseVideo' : 'playVideo');
+        const vis = () => send(document.hidden ? 'pauseVideo' : 'playVideo');
         document.addEventListener('visibilitychange', vis);
         this.swap(layer, {
             stop() {
