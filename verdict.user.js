@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.46
+// @version      1.11.47
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.46', // подставляет build.sh из @version
+    version: '1.11.47', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -15677,6 +15677,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.47',
+        ['Видео YouTube на фоне: больше не всплывают кнопки плеера («назад», «пауза», «вперёд») — пока ролик подгружается или начинается заново, виден его кадр']
+    ],
+    [
         '1.11.46',
         ['Темы → Фон → «Свои фоны»: кнопка «Видео YouTube» — вставляешь ссылку, и ролик играет фоном без звука, по кругу, с плавным повтором. Можно крутить только кусок: допиши время, например «ссылка 1:23-1:31»']
     ],
@@ -16449,8 +16453,7 @@ const Theme = {
             autoplay: 1,
             mute: 1,
             controls: 0,
-            loop: 1,
-            playlist: id,
+            // без loop/playlist: с ними плеер рисует кнопки «назад / пауза / вперёд»; повтор делаем сами
             start: start || 0,
             playsinline: 1,
             rel: 0,
@@ -16471,7 +16474,29 @@ const Theme = {
         // остаются под обложкой, а не надписью YouTube на весь экран
         let shown = false,
             fading = false,
-            dur = 0;
+            dur = 0,
+            state = null,
+            showT = 0;
+        const reveal = on => {
+            f.style.transition = on ? 'opacity 1s' : 'opacity .35s';
+            f.style.opacity = on ? '1' : '0';
+        };
+        // конец ролика: плавно уводим его в кадр-обложку, перематываем на начало и проявляем снова — без рывка
+        const restart = () => {
+            if (fading) return;
+            fading = true;
+            f.style.transition = 'opacity .9s';
+            f.style.opacity = '0';
+            setTimeout(() => {
+                send('seekTo', [start || 0, true]);
+                send('playVideo');
+                // после перемотки плеер мигает кнопками — ждём, пока ролик снова пойдёт
+                setTimeout(() => {
+                    fading = false;
+                    if (state === 1) reveal(true);
+                }, 1500);
+            }, 950);
+        };
         const send = (func, args = []) => {
             try {
                 f.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
@@ -16489,28 +16514,24 @@ const Theme = {
             }
             const info = (d && d.info) || {},
                 st = info.playerState;
-            if (st === 1 && !shown) {
-                shown = true;
-                // первые мгновения плеер ещё рисует заголовок — даём ему исчезнуть
-                setTimeout(() => !fading && (f.style.opacity = '1'), 1200);
+            // плеер виден, только пока ролик стабильно идёт: при паузе, подгрузке, перемотке и в конце
+            // YouTube показывает свои кнопки — в это время под ним кадр-обложка
+            if (typeof st === 'number' && st !== state) {
+                state = st;
+                clearTimeout(showT);
+                if (st === 1) {
+                    shown = true;
+                    showT = setTimeout(() => state === 1 && !fading && reveal(true), 1500);
+                } else {
+                    reveal(false);
+                    if (st === 0) restart();
+                    else if (st === 2 && !document.hidden) send('playVideo');
+                }
             }
             if (typeof info.duration === 'number' && info.duration > 0) dur = info.duration;
-            // конец ролика: плавно уводим его в кадр-обложку, перематываем на начало и проявляем снова — без рывка
             const stop = end && (!dur || end < dur) ? end : dur;
-            if (typeof info.currentTime === 'number' && stop && info.currentTime > stop - 1.3 && !fading && shown) {
-                fading = true;
-                f.style.transition = 'opacity .9s';
-                f.style.opacity = '0';
-                setTimeout(() => {
-                    send('seekTo', [start || 0, true]);
-                    send('playVideo');
-                    setTimeout(() => {
-                        f.style.opacity = '1';
-                        setTimeout(() => (fading = false), 1000);
-                    }, 700);
-                }, 950);
-            }
-            if (d && d.event === 'onError') f.style.opacity = '0';
+            if (typeof info.currentTime === 'number' && stop && info.currentTime > stop - 1.3 && !fading && shown) restart();
+            if (d && d.event === 'onError') reveal(false);
         };
         addEventListener('message', onMsg);
         f.onload = () => {
