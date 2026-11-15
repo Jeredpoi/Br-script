@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.45
+// @version      1.11.46
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -41,6 +41,7 @@
 // @connect      images.pexels.com
 // @connect      upload.wikimedia.org
 // @connect      i.ytimg.com
+// @connect      www.youtube.com
 // @connect      *
 // @run-at       document-start
 // @noframes
@@ -65,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.45', // подставляет build.sh из @version
+    version: '1.11.46', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -6366,7 +6367,7 @@ Object.assign(GENERATORS, {
     },
     // ---- простые ----
     simple: {
-        name: 'Simple',
+        name: 'Однотонный',
         draw(c, w, h, r, pal, seed) {
             // один ровный цвет — без рисунка и эффектов (seed: 1 графит, 2 полночь, 3 тёплый)
             const col = { 1: '#15161b', 2: '#0f1422', 3: '#1a1512', 4: '#121a16' }[seed] || '#15161b';
@@ -10646,6 +10647,18 @@ const vd = (cat, name, id, accent, accent2, extra) =>
     Object.assign({ cat, name, video: id, accent, accent2, fx: 'none', dim: 0.35 }, extra || {});
 // ролик с YouTube фоном: встроенный плеер без звука, по кругу; кадр-превью — обложка ролика
 const YT_POSTER = (id, big = true) => `https://i.ytimg.com/vi/${id}/${big ? 'maxresdefault' : 'hqdefault'}.jpg`;
+// ссылка YouTube → id ролика и отрезок: «…?v=ID&t=83» или «ссылка 1:23-1:31»
+function parseYt(text) {
+    const s = String(text || '').trim();
+    const m = s.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/);
+    if (!m) return null;
+    const sec = v => v.split(':').reduce((a, x) => a * 60 + Number(x), 0);
+    const r = s.match(/(\d{1,2}(?::\d{2}){1,2})\s*[-–—]\s*(\d{1,2}(?::\d{2}){1,2})/);
+    const t = s.match(/[?&](?:t|start)=(\d+)/);
+    const start = r ? sec(r[1]) : t ? Number(t[1]) : 0,
+        end = r ? sec(r[2]) : 0;
+    return { id: m[1], start, end: end > start ? end : 0 };
+}
 // фото Pexels (бесплатная лицензия): файл отдаётся напрямую нужной ширины
 const PEXELS = (id, w = 1920) => `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&w=${w}`;
 const px = (cat, name, id, accent, accent2, extra) =>
@@ -11953,14 +11966,39 @@ const SettingsUI = {
             };
         });
 
-        const ph = this.sec(pane, 'Свои фото');
+        const ph = this.sec(pane, 'Свои фоны');
         ph.appendChild(
             U.h(
-                `<div class="muted" style="margin:-4px 0 10px;font-size:11.5px">Фото с компьютера хранятся только в твоём браузере и никуда не загружаются.</div>`
+                `<div class="muted" style="margin:-4px 0 10px;font-size:11.5px">Фото с компьютера хранятся только в твоём браузере и никуда не загружаются. Видео YouTube играет без звука и по кругу.</div>`
             )
         );
         const pg = U.h(`<div class="walls"></div>`);
         ph.appendChild(pg);
+        // ролики YouTube: играют фоном без звука, по кругу, с плавным повтором
+        Store.get('ytWalls', []).forEach(v => {
+            const on = t.wall.kind === 'yt' && t.wall.id === v.id && (t.wall.start || 0) === (v.start || 0);
+            const c = U.h(
+                `<div class="wall ${on ? 'on' : ''}" role="button" title="Видео YouTube"><span class="tagc">${icon('spark', 10).replace('class="vi"', 'class="vi" style="display:inline;vertical-align:-1px"')} YouTube</span><div class="act"><button title="Удалить">${icon('trash', 13)}</button></div><div class="nm"><span>${U.esc(v.name || 'Видео YouTube')}</span></div></div>`
+            );
+            c.style.backgroundImage = `url("${YT_POSTER(v.id, false)}")`;
+            c.onclick = e => {
+                if (e.target.closest('.act')) {
+                    Store.set(
+                        'ytWalls',
+                        Store.get('ytWalls', []).filter(x => x !== v && !(x.id === v.id && x.start === v.start))
+                    );
+                    if (on)
+                        Settings.patch(x => {
+                            x.theme.wall = DEFAULT_SETTINGS.theme.wall;
+                        });
+                    Theme.apply();
+                    this.draw();
+                    return;
+                }
+                this.useYt(v);
+            };
+            pg.appendChild(c);
+        });
         const photos = Store.get('photos', []);
         photos.forEach(p => {
             const on = t.wall.kind === 'photo' && t.wall.id === p.id;
@@ -12026,9 +12064,54 @@ const SettingsUI = {
                     toast(`Живой фон «${scene.name}»`);
                 });
             });
+        const addYt = U.h(
+            `<div class="wall add" role="button" title="Ролик играет фоном без звука и по кругу"><span style="display:flex;flex-direction:column;align-items:center;gap:4px">${icon('spark', 18)}Видео YouTube</span></div>`
+        );
+        addYt.onclick = () => {
+            const text = prompt('Ссылка на видео YouTube.\nЧтобы крутить только кусок, допиши время: …ссылка 1:23-1:31');
+            if (!text) return;
+            const v = parseYt(text);
+            if (!v) return toast('Не похоже на ссылку YouTube', 'err');
+            v.name = 'Видео YouTube';
+            Store.set('ytWalls', Store.get('ytWalls', []).concat(v));
+            this.useYt(v);
+            // название ролика — для подписи карточки
+            if (typeof GM_xmlhttpRequest === 'function')
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + v.id)}`,
+                    timeout: 10000,
+                    onload: r => {
+                        let title = '';
+                        try {
+                            title = JSON.parse(r.responseText).title || '';
+                        } catch {
+                            /* без названия */
+                        }
+                        if (r.status === 401 || r.status === 403) toast('Автор запретил показывать этот ролик на других сайтах — будет только его кадр', 'err');
+                        if (!title) return;
+                        Store.set(
+                            'ytWalls',
+                            Store.get('ytWalls', []).map(x => (x.id === v.id && x.start === v.start ? Object.assign({}, x, { name: title.slice(0, 60) }) : x))
+                        );
+                        this.draw();
+                    }
+                });
+        };
         pg.appendChild(addFile);
         pg.appendChild(addUrl);
+        pg.appendChild(addYt);
         pg.appendChild(addScene);
+    },
+    useYt(v) {
+        Settings.patch(x => {
+            x.theme.wall = { kind: 'yt', id: v.id, start: v.start || 0, end: v.end || 0 };
+            x.theme.rotate = 'off';
+            x.theme.enabled = true;
+        });
+        Theme.apply();
+        this.draw();
+        toast('Видео поставлено фоном');
     },
     shrinkImage(src) {
         return new Promise(res => {
@@ -15594,6 +15677,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.46',
+        ['Темы → Фон → «Свои фоны»: кнопка «Видео YouTube» — вставляешь ссылку, и ролик играет фоном без звука, по кругу, с плавным повтором. Можно крутить только кусок: допиши время, например «ссылка 1:23-1:31»']
+    ],
+    [
         '1.11.45',
         ['«s1mple — автограф»: ролик не обрывается в конце — плавно гаснет и так же плавно начинается заново']
     ],
@@ -16259,7 +16346,7 @@ const Theme = {
                 const yt = s.theme.rotate === 'off' && w.kind === 'yt' && w.id;
                 if (scene && !Fx.reduced() && !IS_LOGS) this.setScene(scene);
                 else if (vid && !Fx.reduced() && !IS_LOGS) this.setVideo(vid);
-                else if (yt && !Fx.reduced() && !IS_LOGS && !Perf.light()) this.setYouTube(yt);
+                else if (yt && !Fx.reduced() && !IS_LOGS && !Perf.light()) this.setYouTube(yt, w.start, w.end);
                 else if (G && G.road && !Fx.reduced() && !IS_LOGS) this.setRoad(w.seed);
                 else if (G && G.live && !Fx.reduced() && !IS_LOGS) this.setLive(w.seed);
                 // фон рисуется после первой отрисовки страницы: генерация (~200 мс при первом заходе) не задерживает форум
@@ -16352,7 +16439,7 @@ const Theme = {
     },
 
     // ролик с YouTube: встроенный плеер без звука и кнопок, растянут на весь экран с обрезкой краёв (там надписи плеера)
-    setYouTube(id) {
+    setYouTube(id, start = 0, end = 0) {
         const layer = document.createElement('div');
         layer.className = 'vd-wl';
         layer.style.backgroundImage = `url("${YT_POSTER(id)}")`;
@@ -16364,6 +16451,7 @@ const Theme = {
             controls: 0,
             loop: 1,
             playlist: id,
+            start: start || 0,
             playsinline: 1,
             rel: 0,
             iv_load_policy: 3,
@@ -16408,12 +16496,13 @@ const Theme = {
             }
             if (typeof info.duration === 'number' && info.duration > 0) dur = info.duration;
             // конец ролика: плавно уводим его в кадр-обложку, перематываем на начало и проявляем снова — без рывка
-            if (typeof info.currentTime === 'number' && dur && info.currentTime > dur - 1.3 && !fading && shown) {
+            const stop = end && (!dur || end < dur) ? end : dur;
+            if (typeof info.currentTime === 'number' && stop && info.currentTime > stop - 1.3 && !fading && shown) {
                 fading = true;
                 f.style.transition = 'opacity .9s';
                 f.style.opacity = '0';
                 setTimeout(() => {
-                    send('seekTo', [0, true]);
+                    send('seekTo', [start || 0, true]);
                     send('playVideo');
                     setTimeout(() => {
                         f.style.opacity = '1';
