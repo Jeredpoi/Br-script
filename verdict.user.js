@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.42
+// @version      1.11.43
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -38,6 +38,8 @@
 // @connect      api.pixhost.to
 // @connect      pixhost.to
 // @connect      assets.mixkit.co
+// @connect      images.pexels.com
+// @connect      upload.wikimedia.org
 // @connect      *
 // @run-at       document-start
 // @noframes
@@ -62,7 +64,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.42', // подставляет build.sh из @version
+    version: '1.11.43', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -4179,7 +4181,7 @@ const Photo = {
     _mem: new Map(),
     _wait: new Map(),
     MEM: 8,
-    THUMBS: 40,
+    THUMBS: 120,
     local(key, value) {
         try {
             if (value === undefined) return JSON.parse(localStorage.getItem('vd.' + key) || 'null');
@@ -4989,6 +4991,18 @@ const GV = {
             }
         c.restore();
     },
+    // поперёк дороги в перспективе: перпендикуляр на земле, сжатый по глубине (на изгибе вбок дорога тонкая по высоте)
+    roadN(P, t) {
+        const e = 0.003;
+        const [x0, y0] = P(Math.max(0, t - e)),
+            [x1, y1] = P(Math.min(1, t + e));
+        let gx = x1 - x0,
+            gy = (y1 - y0) / 0.3;
+        const d = Math.hypot(gx, gy) || 1;
+        gx /= d;
+        gy /= d;
+        return [-gy, gx * 0.3, gx, gy];
+    },
     // линейка цвета по точкам [t, '#hex'] → [r,g,b]
     ramp(stops, t) {
         t = Math.max(0, Math.min(1, t));
@@ -5520,9 +5534,10 @@ Object.assign(GENERATORS, {
             const L = [],
                 R = [];
             for (let i = 0; i <= N; i++) {
-                const [x, y, rw] = P(i / N);
-                L.push([x - rw / 2, y]);
-                R.push([x + rw / 2, y]);
+                const [x, y, rw] = P(i / N),
+                    [nx, ny] = GV.roadN(P, i / N);
+                L.push([x - (nx * rw) / 2, y - (ny * rw) / 2]);
+                R.push([x + (nx * rw) / 2, y + (ny * rw) / 2]);
             }
             c.fillStyle = '#17131c';
             c.beginPath();
@@ -5559,8 +5574,9 @@ Object.assign(GENERATORS, {
                     c.lineWidth = Math.max(1, w / 900) * [6, 2.5, 1][pass];
                     c.beginPath();
                     for (let i = 0; i <= N * 0.85; i++) {
-                        const [x, y, rw] = P(i / N);
-                        i ? c.lineTo(x + rw * off, y) : c.moveTo(x + rw * off, y);
+                        const [x, y, rw] = P(i / N),
+                            [nx, ny] = GV.roadN(P, i / N);
+                        i ? c.lineTo(x + nx * rw * off, y + ny * rw * off) : c.moveTo(x + nx * rw * off, y + ny * rw * off);
                     }
                     c.stroke();
                 }
@@ -6371,12 +6387,14 @@ class LiveRoad {
         this.t = 0;
         this.last = 0;
         this.spawn = [0, 0];
-        this.sprites = { red: this.sprite('#ff2a2a'), brake: this.sprite('#ff5a4a'), white: this.sprite('#fff1d6') };
+        this.pack = [0, 0];
+        this.packV = [1, 1];
+        this.sprites = { red: this.sprite('#ff2a2a'), brake: this.sprite('#ff5a4a'), white: this.sprite('#fff4dc'), xenon: this.sprite('#e4ecff'), amber: this.sprite('#ffaa40') };
         this.resize = U.debounce(() => this.fit(), 150);
         addEventListener('resize', this.resize);
         this.fit();
         // дорога сразу с машинами, а не пустая
-        for (let i = 0; i < 400; i++) this.step(1 / 15);
+        for (let i = 0; i < 900; i++) this.step(1 / 15);
         this.frame = this.frame.bind(this);
         this.raf = requestAnimationFrame(this.frame);
     }
@@ -6427,10 +6445,11 @@ class LiveRoad {
                     if (d > -0.02 && d < 0.05) want = car.v * 0.04;
                 }
                 const lead = list[i - 1];
+                if (lead) lead.litBehind = Math.abs(lead.t - car.t) < 0.08;
                 if (lead) {
                     const gap = (lead.t - car.t) * dir;
-                    if (gap < 0.014) want = 0;
-                    else if (gap < 0.04) want = Math.min(want, lead.s * 0.95 + (gap - 0.014) * 0.6);
+                    if (gap < 0.03) want = 0;
+                    else if (gap < 0.07) want = Math.min(want, lead.s * 0.95 + (gap - 0.03) * 0.6);
                 }
                 // разгон мягкий, торможение резче
                 car.s += (want - car.s) * Math.min(1, dt * (want < car.s ? 4 : 0.8));
@@ -6440,14 +6459,125 @@ class LiveRoad {
             // новая машина въезжает, если у края дороги свободно
             this.spawn[lane] -= dt;
             const edge = lane ? 0.97 : 0;
-            const near = list.length && Math.abs(list[list.length - 1].t - edge) < 0.03;
-            if (this.spawn[lane] <= 0 && !near) {
-                const v = 0.035 + r() * 0.03;
-                this.cars.push({ lane, t: edge, v, s: v, brake: false });
-                this.spawn[lane] = 0.6 + r() * 2.2;
+            const near = list.length && Math.abs(list[list.length - 1].t - edge) < 0.05;
+            if (this.spawn[lane] <= 0 && !near && list.length < 16) {
+                const v = 0.035 + r() * 0.03,
+                    q = r();
+                const type = q < 0.7 ? 'car' : q < 0.85 ? 'suv' : q < 0.95 ? 'truck' : 'moto';
+                this.cars.push({
+                    lane,
+                    t: edge,
+                    v: (type === 'truck' ? v * 0.75 : v) * (this.packV[lane] || 1),
+                    s: v,
+                    brake: false,
+                    type,
+                    lk: type === 'truck' ? 2.5 : type === 'suv' ? 1.1 : 1,
+                    wk: type === 'truck' ? 1.15 : type === 'moto' ? 0.3 : 1,
+                    hk: type === 'truck' ? 1.7 : type === 'suv' ? 1.25 : 1,
+                    led: r() < 0.3,
+                    xenon: r() < 0.4,
+                    blink: r() < 0.06 ? (r() < 0.5 ? -1 : 1) : 0
+                });
+                // колоннами: 3–5 машин подряд, потом разрыв
+                this.pack[lane] = (this.pack[lane] || 0) - 1;
+                if (this.pack[lane] > 0) this.spawn[lane] = 0.7 + r() * 0.9;
+                else {
+                    this.pack[lane] = 2 + ((r() * 3) | 0);
+                    this.packV[lane] = 0.85 + r() * 0.3;
+                    this.spawn[lane] = 2 + r() * 3.5;
+                }
             }
         }
         this.cars = this.cars.filter(c => c.t >= -0.02 && c.t <= 0.98);
+    }
+    // точка машины на дороге: центр полосы, ширина дороги и скорость хода по экрану в этом месте
+    at(t, lane) {
+        t = Math.max(0, Math.min(0.999, t));
+        const [x, y, rw] = this.P(t),
+            [nx, ny, gx, gy] = GV.roadN(this.P, t),
+            o = rw * (lane ? -0.2 : 0.2);
+        // fore — во сколько раз отрезок вдоль дороги короче на экране, чем такой же поперёк
+        return { x: x + nx * o, y: y + ny * o, rw, nx, ny, fore: Math.hypot(gx, gy * 0.3) };
+    }
+    // тёмный корпус по дороге: зад и перед — две точки полосы, поэтому на изгибах машина сама встаёт боком
+    body(c, car, A, B, k, a) {
+        const cap = this.cv.height / 1080,
+            hw = Math.min(A.rw * 0.12, 35 * cap) * car.wk,
+            hwf = Math.min(B.rw * 0.12, 35 * cap) * car.wk,
+            h = Math.min(A.rw * 0.06, 22 * cap) * car.hk,
+            hf = Math.min(B.rw * 0.06, 22 * cap) * car.hk;
+        // четыре угла на асфальте и над ним
+        const g = [
+            [A.x - A.nx * hw, A.y - A.ny * hw],
+            [A.x + A.nx * hw, A.y + A.ny * hw],
+            [B.x + B.nx * hwf, B.y + B.ny * hwf],
+            [B.x - B.nx * hwf, B.y - B.ny * hwf]
+        ];
+        const up = g.map(([px, py], i) => [px, py - (i < 2 ? h : hf)]);
+        const poly = (pts, fill) => {
+            c.fillStyle = fill;
+            c.beginPath();
+            pts.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py)));
+            c.closePath();
+            c.fill();
+        };
+        c.globalAlpha = a;
+        // тень под машиной
+        const mx = (A.x + B.x) / 2,
+            my = (A.y + B.y) / 2;
+        poly(g.map(([px, py]) => [mx + (px - mx) * 1.15, my + (py - my) * 1.15]), 'rgba(0,0,0,.5)');
+        poly([g[0], up[0], up[3], g[3]], '#08070c');
+        poly([g[1], up[1], up[2], g[2]], '#08070c');
+        poly(up, '#14111b');
+        poly([g[0], g[1], up[1], up[0]], '#0b0910');
+        // задний торец подсвечен фарами машины позади
+        if (car.litBehind) poly([g[0], g[1], up[1], up[0]], 'rgba(255,220,170,.06)');
+        if (k > 1 && car.type !== 'truck') {
+            // кабина ближе к заду (у встречной — к заду, то есть дальше от зрителя)
+            const q0 = car.lane ? 0.3 : 0.15,
+                q1 = car.lane ? 0.85 : 0.7;
+            const L = (p0, p1, q) => [p0[0] + (p1[0] - p0[0]) * q, p0[1] + (p1[1] - p0[1]) * q];
+            const mid = (p, q) => [(p[0] + q[0]) / 2 + (p[0] - q[0]) * 0.375, (p[1] + q[1]) / 2 + (p[1] - q[1]) * 0.375];
+            const n0 = L(up[0], up[3], q0),
+                n1 = L(up[1], up[2], q0),
+                f1 = L(up[1], up[2], q1),
+                f0 = L(up[0], up[3], q1);
+            const ch = h * 0.75;
+            const t0 = mid(n0, n1),
+                t1 = mid(n1, n0),
+                t2 = mid(f1, f0),
+                t3 = mid(f0, f1);
+            [t0, t1, t2, t3].forEach(p => (p[1] -= ch));
+            // боковые стёкла: машина в профиль — не ящик
+            poly([n0, t0, t3, f0], '#08070c');
+            poly([n1, t1, t2, f1], '#08070c');
+            poly([n0, t0, t3, f0], 'rgba(120,110,170,.25)');
+            poly([n1, t1, t2, f1], 'rgba(120,110,170,.25)');
+            poly([n0, n1, t1, t0], '#0b0910');
+            const gg = c.createLinearGradient(n0[0], n0[1], n1[0], n1[1]);
+            gg.addColorStop(0, 'rgba(120,110,170,.12)');
+            gg.addColorStop(0.5, 'rgba(120,110,170,.3)');
+            gg.addColorStop(1, 'rgba(120,110,170,.12)');
+            poly([n0, n1, t1, t0], gg);
+            poly([t0, t1, t2, t3], '#1c1726');
+            c.strokeStyle = 'rgba(200,160,235,.38)';
+            c.lineWidth = 1;
+            c.beginPath();
+            c.moveTo(t3[0], t3[1]);
+            c.lineTo(t0[0], t0[1]);
+            c.lineTo(t1[0], t1[1]);
+            c.lineTo(t2[0], t2[1]);
+            c.stroke();
+        }
+        // кромка корпуса ловит свет неба
+        c.strokeStyle = 'rgba(200,160,235,.38)';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(up[0][0], up[0][1]);
+        c.lineTo(up[1][0], up[1][1]);
+        c.stroke();
+        c.globalAlpha = 1;
+        return { hw, h };
     }
     draw() {
         const c = this.ctx,
@@ -6455,21 +6585,100 @@ class LiveRoad {
         if (!c || !P) return;
         c.globalCompositeOperation = 'source-over';
         c.drawImage(this.bg, 0, 0);
+        // геометрия машин: длина на экране ≈ половина ширины дороги
+        const items = this.cars
+            .map(car => {
+                const A = this.at(car.t, car.lane);
+                const e = 0.004,
+                    A2 = this.at(car.t + e, car.lane);
+                const pxPerT = Math.hypot(A2.x - A.x, A2.y - A.y) / e || 1;
+                // вглубь кадра длина сжимается перспективой, вбок — нет: на прямой машина короткая, на изгибе видна боком
+                const fore = A.fore;
+                const len = Math.min(A.rw * 0.42, 110 * (this.cv.height / 1080)) * car.lk * fore;
+                const B = this.at(car.t + len / pxPerT, car.lane);
+                const w = Math.min(A.rw * 0.24, 70 * (this.cv.height / 1080)) * car.wk * Math.max(0.35, Math.hypot(A.nx, A.ny));
+                return { car, A, B, w, pxPerT, fore, len };
+            })
+            .sort((a, b) => b.car.t - a.car.t);
+        // A. корпуса — от дальних к ближним
+        items.forEach(it => {
+            const { car, A, B, w } = it;
+            if (w < 7 || car.type === 'moto' || car.t < 0.04) return;
+            const a = Math.min(1, (w - 7) / 4) * (car.t > 0.6 ? Math.max(0.3, 1 - (car.t - 0.6) * 1.8) : 1);
+            it.dim = this.body(c, car, A, B, w > 16 ? 2 : 1, a);
+        });
         c.globalCompositeOperation = 'lighter';
-        this.cars.forEach(car => {
-            const [x, y, rw] = P(car.t);
-            const off = car.lane ? -0.2 : 0.2,
-                cx = x + rw * off,
-                sep = rw * 0.07,
-                sz = Math.max(3, rw * (car.lane ? 0.07 : car.brake ? 0.075 : 0.055));
-            // дальний свет фар немного растекается по асфальту
-            const spr = car.lane ? this.sprites.white : car.brake ? this.sprites.brake : this.sprites.red;
-            c.globalAlpha = Math.min(1, 0.35 + rw / 120);
-            c.drawImage(spr, cx - sep - sz / 2, y - sz / 2, sz, sz);
-            c.drawImage(spr, cx + sep - sz / 2, y - sz / 2, sz, sz);
-            if (car.lane) {
-                c.globalAlpha = 0.12;
-                c.drawImage(spr, cx - sz * 1.5, y - sz * 0.4, sz * 3, sz * 1.6);
+        // B. свет фар на асфальте: у встречных — к зрителю, у попутных — вперёд от машины
+        items.forEach(({ car, A, B, w, pxPerT, fore, len: bl }) => {
+            if (w < 10 || car.t < 0.04) return;
+            const cl = (bl * 2) / pxPerT;
+            const from = car.lane ? A : B,
+                to = this.at(car.lane ? car.t - cl : car.t + bl / pxPerT + cl, car.lane);
+            const g = c.createLinearGradient(from.x, from.y, to.x, to.y);
+            g.addColorStop(0, 'rgba(255,225,170,.12)');
+            g.addColorStop(0.5, 'rgba(255,225,170,.045)');
+            g.addColorStop(1, 'rgba(255,225,170,0)');
+            c.fillStyle = g;
+            c.beginPath();
+            const fw = Math.min(from.rw * 0.1, 30 * (this.cv.height / 1080)),
+                tw = Math.min(to.rw * 0.18, 50 * (this.cv.height / 1080));
+            c.moveTo(from.x - from.nx * fw, from.y - from.ny * fw);
+            c.lineTo(from.x + from.nx * fw, from.y + from.ny * fw);
+            c.lineTo(to.x + to.nx * tw, to.y + to.ny * tw);
+            c.lineTo(to.x - to.nx * tw, to.y - to.ny * tw);
+            c.closePath();
+            c.fill();
+        });
+        // C. огни
+        const S = this.sprites;
+        const cap = this.cv.height / 1080;
+        items.forEach(({ car, A, w }) => {
+            if (car.t < 0.02) return;
+            const hw = Math.min(A.rw * 0.12, 35 * cap) * car.wk,
+                h = Math.min(A.rw * 0.06, 22 * cap) * car.hk,
+                fade = car.t > 0.7 ? Math.max(0.35, 1 - (car.t - 0.7) * 2) : 1;
+            const spr = car.lane ? (car.xenon ? S.xenon : S.white) : car.brake ? S.brake : S.red;
+            const sz = Math.max(2, Math.min(A.rw * 0.03, 11 * cap) * (car.lane ? 1.3 : 1)) * (car.brake && !car.lane ? 1.6 : 1) * 2.2;
+            const ly = w >= 7 ? A.y - h * 0.4 : A.y;
+            c.globalAlpha = Math.min(1, 0.7 + A.rw / 120) * fade;
+            if (car.type === 'moto') c.drawImage(spr, A.x - sz / 2, ly - sz / 2, sz, sz);
+            else {
+                const sep = w >= 7 ? hw * 0.78 : A.rw * 0.07,
+                    sx = A.nx * sep,
+                    sy = A.ny * sep;
+                c.drawImage(spr, A.x - sx - sz / 2, ly - sy - sz / 2, sz, sz);
+                c.drawImage(spr, A.x + sx - sz / 2, ly + sy - sz / 2, sz, sz);
+                // светодиодная полоса через всю корму
+                if (!car.lane && car.led && w >= 16) {
+                    c.fillStyle = car.brake ? 'rgba(255,70,60,.9)' : 'rgba(255,40,40,.6)';
+                    c.strokeStyle = c.fillStyle;
+                    c.lineWidth = 1;
+                    c.beginPath();
+                    c.moveTo(A.x - sx, ly - sy);
+                    c.lineTo(A.x + sx, ly + sy);
+                    c.stroke();
+                }
+                // третий стоп-сигнал
+                if (!car.lane && car.brake && w >= 16) c.drawImage(S.brake, A.x - sz * 0.2, A.y - h * 1.6 - sz * 0.12, sz * 0.4, sz * 0.24);
+                // габариты фуры
+                if (car.type === 'truck' && w >= 10)
+                    for (let k = -1; k <= 1; k += 0.5) c.drawImage(S.amber, A.x + k * hw * A.nx - sz * 0.25, A.y + k * hw * A.ny - h * 0.98 - sz * 0.25, sz * 0.5, sz * 0.5);
+                // мокрый асфальт: отражение огней
+                if (w >= 10) {
+                    c.globalAlpha *= 0.1;
+                    c.drawImage(spr, A.x - sx - sz * 0.25, A.y - sy, sz * 0.5, Math.min(A.rw * 0.07, 25 * cap));
+                    c.drawImage(spr, A.x + sx - sz * 0.25, A.y + sy, sz * 0.5, Math.min(A.rw * 0.07, 25 * cap));
+                }
+                // встречные близко — ореол
+                if (car.lane && w > 30) {
+                    c.globalAlpha = 0.08 * fade;
+                    c.drawImage(spr, A.x - sz * 1.5, ly - sz * 0.8, sz * 3, sz * 1.6);
+                }
+            }
+            // поворотник изредка
+            if (car.blink && Math.floor(this.t * 3) % 2 && w >= 7) {
+                c.globalAlpha = 0.9;
+                c.drawImage(S.amber, A.x + car.blink * hw * A.nx - sz * 0.3, ly + car.blink * hw * A.ny - sz * 0.3, sz * 0.6, sz * 0.6);
             }
         });
         c.globalAlpha = 1;
@@ -10421,7 +10630,8 @@ const THEME_CATS = [
     ['sky', 'Небо и звёзды', 'star'],
     ['abstract', 'Абстракция', 'palette'],
     ['cars', 'Машины', 'bolt'],
-    ['simple', 'Простые', 'check']
+    ['esport', 'Киберспорт', 'star'],
+    ['simple', 'Однотонные', 'check']
 ];
 const ph = (cat, name, id, author, accent, accent2, fx, extra) =>
     Object.assign({ cat, name, photo: id, author, accent, accent2, fx }, extra || {});
@@ -10432,6 +10642,10 @@ const MIXKIT = (id, q = 720) => ({
 });
 const vd = (cat, name, id, accent, accent2, extra) =>
     Object.assign({ cat, name, video: id, accent, accent2, fx: 'none', dim: 0.35 }, extra || {});
+// фото Pexels (бесплатная лицензия): файл отдаётся напрямую нужной ширины
+const PEXELS = (id, w = 1920) => `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&w=${w}`;
+const px = (cat, name, id, accent, accent2, extra) =>
+    Object.assign({ cat, name, pexels: id, accent, accent2, fx: 'none', dim: 0.3 }, extra || {});
 const gn = (cat, name, gen, seed, accent, accent2, fx, extra) =>
     Object.assign({ cat, name, gen, seed, accent, accent2, fx }, extra || {});
 const THEME_PRESETS = [
@@ -10495,14 +10709,37 @@ const THEME_PRESETS = [
     vd('cars', 'Ночная поездка', 42039, '#ffb454', '#ff4d4d', { was: '0eGRcXpR2_g' }),
     vd('cars', 'Тоннель', 2026, '#ffd27a', '#ff7a45'),
     vd('cars', 'Ночное шоссе', 34562, '#c8cdd6', '#ff4d4d'),
+    px('cars', 'Nissan 370Z', 919073, '#ff5a3d', '#c8cdd6'),
+    px('cars', 'Lamborghini Aventador SVJ', 8664302, '#c8cdd6', '#5ab0ff'),
+    px('cars', 'Lamborghini в гараже', 8664298, '#5ab0ff', '#c8cdd6'),
+    px('cars', 'Huracán в темноте', 27968215, '#d6deff', '#8b8f9a'),
+    px('cars', 'Mercedes', 27517027, '#ffb020', '#ff7a45'),
+    px('cars', 'BMW M5', 17888840, '#3ad1c4', '#ffd27a'),
+    px('cars', 'BMW M4', 11576199, '#c8cdd6', '#ff4d4d'),
+    px('cars', 'Lancer Evolution', 12590851, '#ff3b3b', '#c8cdd6'),
+    px('cars', 'Ночная заправка', 13010595, '#8f6bff', '#ff4d4d'),
+    px('cars', 'Ночная сходка', 9661473, '#ff3b5c', '#ffd27a'),
+    px('cars', 'Гараж суперкаров', 5050535, '#ffd27a', '#c8cdd6'),
     gn('cars', 'На скорости', 'speed', 3601, '#ff3b3b', '#c8cdd6', 'none', { was: '2QIQhVB4sOE' }),
     gn('cars', 'RS6', 'taillights', 3603, '#e5484d', '#8b8f9a', 'rain', { was: 'krETJVsnWeA' }),
 
+    // s1mple — фото с Wikimedia Commons (свободная лицензия)
+    {
+        cat: 'esport',
+        name: 's1mple',
+        url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Oleksandr_s1mple_Kostyliev.jpg/1280px-Oleksandr_s1mple_Kostyliev.jpg',
+        author: 'Wikimedia Commons',
+        accent: '#ffd400',
+        accent2: '#5ab0ff',
+        fx: 'none',
+        dim: 0.35
+    },
+
     // ровный цвет без рисунка и эффектов
-    gn('simple', 'Simple', 'simple', 1, '#d0d3da', '#8b8f9a', 'none', { dim: 0 }),
-    gn('simple', 'Simple: синий', 'simple', 2, '#3aa0ff', '#7c7cff', 'none', { dim: 0 }),
-    gn('simple', 'Simple: тёплый', 'simple', 3, '#ffb454', '#e5484d', 'none', { dim: 0 }),
-    gn('simple', 'Simple: хвоя', 'simple', 4, '#2fbf71', '#14b8a6', 'none', { dim: 0 })
+    gn('simple', 'Графит', 'simple', 1, '#d0d3da', '#8b8f9a', 'none', { dim: 0 }),
+    gn('simple', 'Полночь', 'simple', 2, '#3aa0ff', '#7c7cff', 'none', { dim: 0 }),
+    gn('simple', 'Тёплый', 'simple', 3, '#ffb454', '#e5484d', 'none', { dim: 0 }),
+    gn('simple', 'Хвоя', 'simple', 4, '#2fbf71', '#14b8a6', 'none', { dim: 0 })
 ];
 // выбранная раньше фото-тема Unsplash (больше не грузится) → её рисованная замена
 function migrateUnsplashWall() {
@@ -11224,9 +11461,30 @@ const SettingsUI = {
         });
     },
 
+    // превью рисованного фона: из хранилища сразу, иначе рисуем по одному в очереди — окно открывается без задержки
+    genThumb(gen, seed, card) {
+        const key = `g:${BRAND.version}:${gen}:${seed}`,
+            all = Photo.thumbs();
+        if (all[key]) return Promise.resolve(all[key].d);
+        this._gq = (this._gq || Promise.resolve()).then(
+            () =>
+                new Promise(res =>
+                    setTimeout(() => {
+                        if (card && !card.isConnected) return res(null);
+                        if (all[key]) return res(all[key].d);
+                        const u = Wallpaper.render(gen, seed, 320, 180);
+                        all[key] = { d: u, t: Date.now() };
+                        Photo.saveThumbs();
+                        res(u);
+                    }, 0)
+                )
+        );
+        return this._gq;
+    },
     /* Готовые темы */
     themeSrc(p, w = wallW()) {
         if (p.video) return MIXKIT(p.video, w > 640 ? 720 : 360).poster;
+        if (p.pexels) return PEXELS(p.pexels, Math.min(w, 2560));
         return p.photo ? UNSPLASH(p.photo, w) : p.url || null;
     },
     applyPreset(p) {
@@ -11327,14 +11585,14 @@ const SettingsUI = {
                           : w.kind === 'gen' && w.gen === p.gen && w.seed === p.seed);
                 const fxName = p.fx && p.fx !== 'none' ? FX_EFFECTS[p.fx].name : '';
                 const card =
-                    U.h(`<div class="wall ${on ? 'on' : ''}" role="button" style="--c:${p.accent}" title="${p.author ? `Фото: ${U.esc(p.author)} / Unsplash` : p.video ? 'Видео: Mixkit' : 'Генеративный фон VERDICT'}">
+                    U.h(`<div class="wall ${on ? 'on' : ''}" role="button" style="--c:${p.accent}" title="${p.author ? `Фото: ${U.esc(p.author)}` : p.pexels ? 'Фото: Pexels' : p.video ? 'Видео: Mixkit' : 'Генеративный фон VERDICT'}">
                     ${p.star ? '<span class="tagc" style="background:var(--acc);color:#fff">★ ТОП</span>' : fxName ? `<span class="tagc">${icon(FX_EFFECTS[p.fx].icon, 10).replace('class="vi"', 'class="vi" style="display:inline;vertical-align:-1px"')} ${fxName}</span>` : ''}
-                    <div class="nm"><span class="dotc"></span><span class="dotc" style="--c:${p.accent2 || p.accent};margin-left:-10px"></span><span>${p.name}</span>${p.photo ? '<span class="muted">фото</span>' : p.video || p.live ? '<span class="muted">живой</span>' : ''}</div></div>`);
+                    <div class="nm"><span class="dotc"></span><span class="dotc" style="--c:${p.accent2 || p.accent};margin-left:-10px"></span><span>${p.name}</span>${p.photo || p.pexels || p.url ? '<span class="muted">фото</span>' : p.video || p.live ? '<span class="muted">живой</span>' : ''}</div></div>`);
                 // молния живая, на превью рисуем застывшую
                 const bolt = /lightning|storm/.test(p.fx || '') ? `url(${Fx.stillBolt(400, 225, p.seed || 7)}), ` : '';
                 if (src) {
-                    const [fg, fs] = CAT_FALLBACK[p.cat] || CAT_FALLBACK.dev;
-                    card.style.backgroundImage = `${bolt}url(${Wallpaper.render(fg, fs, 400, 225)})`;
+                    // пока грузится превью — просто тёмная карточка (рисовать запасной фон на каждую — секунды на открытие)
+                    if (bolt) card.style.backgroundImage = bolt.replace(/, $/, '');
                     card.classList.add('loading');
                     Photo.load(this.themeSrc(p, 640), { thumb: true })
                         .then(data => {
@@ -11347,8 +11605,8 @@ const SettingsUI = {
                         })
                         .finally(() => card.classList.remove('loading'));
                 } else
-                    requestAnimationFrame(() => {
-                        card.style.backgroundImage = `${bolt}url(${Wallpaper.render(p.gen, p.seed, 400, 225)})`;
+                    this.genThumb(p.gen, p.seed, card).then(u => {
+                        if (u) card.style.backgroundImage = `${bolt}url(${u})`;
                     });
                 card.onclick = () => this.applyPreset(p);
                 grid.appendChild(card);
@@ -15325,6 +15583,15 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.43',
+        [
+            '«Серпантин»: видно сами машины — тёмные силуэты с кабиной и стёклами, фары светят на дорогу, стоп-сигналы в пробках; есть фуры с габаритами и мотоциклы',
+            'Новые темы с машинами — фото: Lamborghini, Nissan 370Z, BMW M5 и M4, Mercedes, Lancer Evolution, ночная сходка и другие',
+            'Новая категория «Киберспорт»: s1mple. Ровные цвета теперь в категории «Однотонные»',
+            'Окно VERDICT открывается сразу и после выбора темы: превью фонов рисуются по одному и запоминаются'
+        ]
+    ],
     [
         '1.11.42',
         [
