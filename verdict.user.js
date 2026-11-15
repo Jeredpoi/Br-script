@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.47
+// @version      1.11.48
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.47', // подставляет build.sh из @version
+    version: '1.11.48', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -15677,6 +15677,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.48',
+        ['Видео YouTube на фоне: два плеера по очереди — следующий запускается заранее невидимым, и в конце ролика они плавно меняются. Кнопки «назад / пауза / вперёд» больше не видны']
+    ],
+    [
         '1.11.47',
         ['Видео YouTube на фоне: больше не всплывают кнопки плеера («назад», «пауза», «вперёд») — пока ролик подгружается или начинается заново, виден его кадр']
     ],
@@ -16448,115 +16452,140 @@ const Theme = {
         layer.className = 'vd-wl';
         layer.style.backgroundImage = `url("${YT_POSTER(id)}")`;
         layer.style.overflow = 'hidden';
-        const f = document.createElement('iframe');
-        const q = new URLSearchParams({
-            autoplay: 1,
-            mute: 1,
-            controls: 0,
-            // без loop/playlist: с ними плеер рисует кнопки «назад / пауза / вперёд»; повтор делаем сами
-            start: start || 0,
-            playsinline: 1,
-            rel: 0,
-            iv_load_policy: 3,
-            disablekb: 1,
-            fs: 0,
-            modestbranding: 1,
-            enablejsapi: 1,
-            origin: location.origin
-        });
-        f.src = `https://www.youtube-nocookie.com/embed/${id}?${q}`;
-        f.allow = 'autoplay; encrypted-media';
-        f.tabIndex = -1;
-        f.setAttribute('aria-hidden', 'true');
-        f.style.cssText =
-            'position:absolute;left:50%;top:50%;width:max(100vw,177.78vh);height:max(100vh,56.25vw);transform:translate(-50%,-50%) scale(1.2);border:0;pointer-events:none;opacity:0;transition:opacity 1s';
-        // ролик проявляется, только когда плеер сообщил «играет»: недоступное видео или ошибка
-        // остаются под обложкой, а не надписью YouTube на весь экран
-        let shown = false,
-            fading = false,
-            dur = 0,
-            state = null,
-            showT = 0;
-        const reveal = on => {
-            f.style.transition = on ? 'opacity 1s' : 'opacity .35s';
-            f.style.opacity = on ? '1' : '0';
+        // YouTube на несколько секунд показывает кнопки «назад / пауза / вперёд» при каждом старте и перемотке.
+        // Поэтому два плеера по очереди: следующий заранее запускается невидимым, кнопки у него успевают
+        // пропасть, и в конце ролика плееры плавно меняются местами — перемотки на виду нет вовсе
+        const LEAD = 4; // за сколько секунд до конца запускать следующий плеер
+        const mk = auto => {
+            const f = document.createElement('iframe');
+            const q = new URLSearchParams({
+                autoplay: auto ? 1 : 0,
+                mute: 1,
+                controls: 0,
+                start: start || 0,
+                playsinline: 1,
+                rel: 0,
+                iv_load_policy: 3,
+                disablekb: 1,
+                fs: 0,
+                modestbranding: 1,
+                enablejsapi: 1,
+                origin: location.origin
+            });
+            f.src = `https://www.youtube-nocookie.com/embed/${id}?${q}`;
+            f.allow = 'autoplay; encrypted-media';
+            f.tabIndex = -1;
+            f.setAttribute('aria-hidden', 'true');
+            f.style.cssText =
+                'position:absolute;left:50%;top:50%;width:max(100vw,177.78vh);height:max(100vh,56.25vw);transform:translate(-50%,-50%) scale(1.2);border:0;pointer-events:none;opacity:0;transition:opacity 1s';
+            const P = { f, state: null, time: 0, dur: 0, playingSince: 0 };
+            P.send = (func, args = []) => {
+                try {
+                    f.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
+                } catch {
+                    /* плеер ещё не готов */
+                }
+            };
+            P.show = on => {
+                f.style.transition = on ? 'opacity 1s' : 'opacity .6s';
+                f.style.opacity = on ? '1' : '0';
+                P.visible = on;
+            };
+            f.onload = () => {
+                // подписка на события плеера без загрузки его библиотеки
+                let n = 0;
+                const ping = setInterval(() => {
+                    if (P.state !== null || ++n > 30 || !f.isConnected) return clearInterval(ping);
+                    try {
+                        f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'vd' }), '*');
+                    } catch {
+                        clearInterval(ping);
+                    }
+                }, 500);
+            };
+            layer.appendChild(f);
+            return P;
         };
-        // конец ролика: плавно уводим его в кадр-обложку, перематываем на начало и проявляем снова — без рывка
-        const restart = () => {
-            if (fading) return;
-            fading = true;
-            f.style.transition = 'opacity .9s';
-            f.style.opacity = '0';
+        const A = mk(true),
+            B = mk(false);
+        let cur = A,
+            next = B,
+            prepped = false,
+            swapping = false;
+        const stopAt = P => (end && (!P.dur || end < P.dur) ? end : P.dur);
+        const swapPlayers = () => {
+            if (swapping) return;
+            swapping = true;
+            const old = cur;
+            cur = next;
+            next = old;
+            // следующий уже идёт и без кнопок — проявляем его, старый уводим
+            if (cur.state === 1 && performance.now() - cur.playingSince > 2500) cur.show(true);
+            old.show(false);
             setTimeout(() => {
-                send('seekTo', [start || 0, true]);
-                send('playVideo');
-                // после перемотки плеер мигает кнопками — ждём, пока ролик снова пойдёт
-                setTimeout(() => {
-                    fading = false;
-                    if (state === 1) reveal(true);
-                }, 1500);
-            }, 950);
-        };
-        const send = (func, args = []) => {
-            try {
-                f.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
-            } catch {
-                /* плеер ещё не готов */
-            }
+                old.send('pauseVideo');
+                prepped = false;
+                swapping = false;
+            }, 700);
         };
         const onMsg = e => {
-            if (e.source !== f.contentWindow) return;
+            const P = e.source === A.f.contentWindow ? A : e.source === B.f.contentWindow ? B : null;
+            if (!P) return;
             let d;
             try {
                 d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
             } catch {
                 return;
             }
-            const info = (d && d.info) || {},
-                st = info.playerState;
-            // плеер виден, только пока ролик стабильно идёт: при паузе, подгрузке, перемотке и в конце
-            // YouTube показывает свои кнопки — в это время под ним кадр-обложка
-            if (typeof st === 'number' && st !== state) {
-                state = st;
-                clearTimeout(showT);
-                if (st === 1) {
-                    shown = true;
-                    showT = setTimeout(() => state === 1 && !fading && reveal(true), 1500);
-                } else {
-                    reveal(false);
-                    if (st === 0) restart();
-                    else if (st === 2 && !document.hidden) send('playVideo');
-                }
+            if (d && d.event === 'onError') return P.show(false);
+            const info = (d && d.info) || {};
+            if (typeof info.duration === 'number' && info.duration > 0) P.dur = info.duration;
+            if (typeof info.currentTime === 'number') P.time = info.currentTime;
+            if (typeof info.playerState === 'number' && info.playerState !== P.state) {
+                P.state = info.playerState;
+                if (P.state === 1) P.playingSince = performance.now();
+                // текущий плеер встал (подгрузка, пауза) — прячем, пока YouTube рисует кнопки
+                else if (P === cur) cur.show(false);
+                if (P === cur && P.state === 2 && !document.hidden && !swapping) P.send('playVideo');
+                if (P === cur && P.state === 0) swapPlayers();
             }
-            if (typeof info.duration === 'number' && info.duration > 0) dur = info.duration;
-            const stop = end && (!dur || end < dur) ? end : dur;
-            if (typeof info.currentTime === 'number' && stop && info.currentTime > stop - 1.3 && !fading && shown) restart();
-            if (d && d.event === 'onError') reveal(false);
+            if (P !== cur) return;
+            // текущий идёт ровно уже 3 с — кнопки пропали, показываем
+            if (P.state === 1 && !P.visible && !swapping && performance.now() - P.playingSince > 3000) P.show(true);
+            const stop = stopAt(P);
+            if (!stop) return;
+            // ролик короче запаса — второй плеер не успеет, просто перематываем под обложкой
+            if (stop - (start || 0) < LEAD * 2) {
+                if (P.time > stop - 1.2 && !swapping) {
+                    swapping = true;
+                    P.show(false);
+                    setTimeout(() => {
+                        P.send('seekTo', [start || 0, true]);
+                        P.send('playVideo');
+                        swapping = false;
+                    }, 700);
+                }
+                return;
+            }
+            if (P.time > stop - LEAD && !prepped) {
+                prepped = true;
+                next.show(false);
+                next.send('seekTo', [start || 0, true]);
+                next.send('playVideo');
+            }
+            if (P.time > stop - 0.9) swapPlayers();
         };
         addEventListener('message', onMsg);
-        f.onload = () => {
-            // подписка на события плеера без загрузки его библиотеки
-            let n = 0;
-            const ping = setInterval(() => {
-                if (shown || ++n > 20 || !f.isConnected) return clearInterval(ping);
-                try {
-                    f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'vd' }), '*');
-                } catch {
-                    clearInterval(ping);
-                }
-            }, 500);
-        };
-        layer.appendChild(f);
         this.wall.appendChild(layer);
         this._tok = (this._tok || 0) + 1;
         Photo.wall(null);
-        const vis = () => send(document.hidden ? 'pauseVideo' : 'playVideo');
+        const vis = () => cur.send(document.hidden ? 'pauseVideo' : 'playVideo');
         document.addEventListener('visibilitychange', vis);
         this.swap(layer, {
             stop() {
                 document.removeEventListener('visibilitychange', vis);
                 removeEventListener('message', onMsg);
-                f.src = 'about:blank';
+                A.f.src = B.f.src = 'about:blank';
             }
         });
     },
