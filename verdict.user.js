@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.41
+// @version      1.11.42
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -37,6 +37,7 @@
 // @connect      catbox.moe
 // @connect      api.pixhost.to
 // @connect      pixhost.to
+// @connect      assets.mixkit.co
 // @connect      *
 // @run-at       document-start
 // @noframes
@@ -61,7 +62,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.41', // подставляет build.sh из @version
+    version: '1.11.42', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -3886,9 +3887,12 @@ const GENERATORS = {
                     const v = n(x * sc + 2.5 * qx, y * sc + 2.5 * qy, 5) * 1.4 + 0.45;
                     const col = ramp(pal, Math.max(0, v) * 0.95),
                         i = (y * w + x) * 4;
-                    d[i] = col[0];
-                    d[i + 1] = col[1];
-                    d[i + 2] = col[2];
+                    // дым языками снизу-слева, остальное тонет в темноте — текст читается
+                    const mk = Math.pow(Math.max(0, Math.min(1, (y / h) * 1.1 + (1 - x / w) * 0.35 - 0.45 + qx * 0.7)), 1.5),
+                        k = 0.1 + 0.42 * mk;
+                    d[i] = col[0] * k;
+                    d[i + 1] = col[1] * k;
+                    d[i + 2] = col[2] * k;
                     d[i + 3] = 255;
                 }
             c.putImageData(img, 0, 0);
@@ -4159,6 +4163,8 @@ const Wallpaper = {
             return this.render(gens[pick], (seed * 7919) % 100000);
         }
         if (wall.kind === 'url' && wall.url) return wall.url;
+        // видео без анимации (экономия, сайт логов) — его кадр
+        if (wall.kind === 'video' && wall.id) return MIXKIT(wall.id).poster;
         if (wall.kind === 'photo') {
             const p = Store.get('photos', []).find(x => x.id === wall.id);
             if (p) return p.src;
@@ -4659,6 +4665,1829 @@ class LiveWall {
         if (this.onSettings) Bus.off('settings', this.onSettings);
         if (this.worker) this.worker.terminate();
         this.worker = null;
+        removeEventListener('resize', this.resize);
+        this.cv = null;
+    }
+}
+
+// фоны тем, нарисованные кодом: у каждой темы свой рисунок (фото Unsplash без входа больше не отдаются — 401,
+// и все фото-темы одной категории показывали один и тот же запасной фон)
+const GV = {
+    // небо/фон сверху вниз
+    vgrad(c, w, h, stops) {
+        const g = c.createLinearGradient(0, 0, 0, h);
+        stops.forEach(([t, col]) => g.addColorStop(t, col));
+        c.fillStyle = g;
+        c.fillRect(0, 0, w, h);
+    },
+    glow(c, x, y, r, col, a) {
+        const g = c.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, U.hexA(col, a));
+        g.addColorStop(1, U.hexA(col, 0));
+        c.fillStyle = g;
+        c.fillRect(x - r, y - r, r * 2, r * 2);
+    },
+    stars(c, w, h, r, n, maxY = 1, a = 0.7) {
+        for (let i = 0; i < n; i++) {
+            const s = r() < 0.06 ? 1.8 : 1.1;
+            c.fillStyle = `rgba(255,255,255,${(0.15 + r() * a).toFixed(2)})`;
+            c.fillRect(r() * w, r() * h * maxY, s, s);
+        }
+    },
+    // затемнение к краям — текст форума поверх читается
+    vignette(c, w, h, a = 0.55) {
+        const g = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(1, `rgba(0,0,0,${a})`);
+        c.fillStyle = g;
+        c.fillRect(0, 0, w, h);
+    },
+    // облака/дым по шуму в половинном разрешении: быстрее, а мягкость не теряется
+    cloudLayer(c, w, h, seed, col, { scale = 3, y0 = 0, y1 = 1, a = 0.8, oct = 5, cut = 0 } = {}) {
+        const n = noise2(seed);
+        const [R, G, B] = hexRgb(col);
+        const sw = Math.max(1, Math.round(w / 3)),
+            sh = Math.max(1, Math.round(h / 3));
+        const cv = document.createElement('canvas');
+        cv.width = sw;
+        cv.height = sh;
+        const ctx = cv.getContext('2d');
+        const img = ctx.createImageData(sw, sh);
+        for (let y = 0; y < sh; y++) {
+            const ty = y / sh;
+            if (ty < y0 || ty > y1) continue;
+            const edge = Math.min(1, (ty - y0) / 0.12, (y1 - ty) / 0.12);
+            for (let x = 0; x < sw; x++) {
+                let v = n((x / sw) * scale * 1.6, (y / sh) * scale, oct) + 0.5;
+                v = Math.max(0, (v - cut) / (1 - cut));
+                const i = (y * sw + x) * 4;
+                img.data[i] = R;
+                img.data[i + 1] = G;
+                img.data[i + 2] = B;
+                img.data[i + 3] = Math.min(255, v * v * 255 * a * edge);
+            }
+        }
+        ctx.putImageData(img, 0, 0);
+        c.imageSmoothingQuality = 'high';
+        c.drawImage(cv, 0, 0, w, h);
+    },
+    // силуэт гор
+    ridge(c, w, h, r, base, amp, col, rough = 1) {
+        c.fillStyle = col;
+        c.beginPath();
+        c.moveTo(0, h);
+        let y = base;
+        for (let x = 0; x <= w + 20; x += 12) {
+            y += (r() - 0.5) * amp * 0.25 * rough;
+            y = Math.max(base - amp, Math.min(base + amp * 0.4, y));
+            c.lineTo(x, y);
+        }
+        c.lineTo(w, h);
+        c.closePath();
+        c.fill();
+    },
+    // силуэт города с окнами
+    skyline(c, w, h, r, base, { col = '#05060a', win = '#ffd27a', winA = 0.55, maxH = 0.32, minW = 18, maxW = 70, dense = 0.12 } = {}) {
+        for (let x = -10; x < w; ) {
+            const bw = minW + r() * (maxW - minW),
+                bh = h * (0.05 + r() * maxH);
+            c.fillStyle = col;
+            c.fillRect(x, base - bh, bw, bh + h);
+            for (let wy = base - bh + 6; wy < base - 4; wy += 7)
+                for (let wx = x + 4; wx < x + bw - 4; wx += 6)
+                    if (r() < dense) {
+                        c.fillStyle = U.hexA(win, winA * (0.4 + r() * 0.6));
+                        c.fillRect(wx, wy, 2.4, 3);
+                    }
+            x += bw + 1 + r() * 4;
+        }
+    },
+    // ломаная молния с ответвлениями и свечением
+    bolt(c, x, y, len, r, col, width = 2.2, depth = 0) {
+        const pts = [[x, y]];
+        let cx = x,
+            cy = y;
+        const step = len / 14;
+        for (let i = 0; i < 14; i++) {
+            cx += (r() - 0.5) * step * 1.4;
+            cy += step;
+            pts.push([cx, cy]);
+            if (depth < 2 && r() < 0.18) GV.bolt(c, cx, cy, len * 0.35, r, col, width * 0.55, depth + 1);
+        }
+        c.save();
+        c.lineJoin = 'round';
+        c.lineCap = 'round';
+        [
+            [width * 9, 0.08],
+            [width * 3.5, 0.25],
+            [width, 1]
+        ].forEach(([lw, a]) => {
+            c.strokeStyle = a === 1 ? '#fff' : U.hexA(col, a);
+            c.lineWidth = lw;
+            c.beginPath();
+            pts.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py)));
+            c.stroke();
+        });
+        c.restore();
+    },
+    // размытое пятно света (боке)
+    bokeh(c, w, h, r, n, cols, { y0 = 0, y1 = 1, rMin = 6, rMax = 40, a = 0.35 } = {}) {
+        c.save();
+        c.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < n; i++) {
+            const x = r() * w,
+                y = h * (y0 + r() * (y1 - y0)),
+                rad = rMin + r() * (rMax - rMin),
+                col = cols[(r() * cols.length) | 0];
+            const g = c.createRadialGradient(x, y, 0, x, y, rad);
+            g.addColorStop(0, U.hexA(col, a));
+            g.addColorStop(0.65, U.hexA(col, a * 0.55));
+            g.addColorStop(1, U.hexA(col, 0));
+            c.fillStyle = g;
+            c.beginPath();
+            c.arc(x, y, rad, 0, Math.PI * 2);
+            c.fill();
+        }
+        c.restore();
+    },
+    rain(c, w, h, r, n, a = 0.12, len = 18) {
+        c.strokeStyle = `rgba(200,215,255,${a})`;
+        c.lineWidth = 1;
+        c.beginPath();
+        for (let i = 0; i < n; i++) {
+            const x = r() * w,
+                y = r() * h;
+            c.moveTo(x, y);
+            c.lineTo(x - len * 0.18, y + len);
+        }
+        c.stroke();
+    },
+    // молния между двумя точками: ломаная делением отрезка пополам, с ответвлениями
+    zap(c, x0, y0, x1, y1, r, col, width = 2, { rough = 0.22, branch = 0.3, depth = 0 } = {}) {
+        let pts = [
+            [x0, y0],
+            [x1, y1]
+        ];
+        const L = Math.hypot(x1 - x0, y1 - y0);
+        let off = L * rough;
+        for (let k = 0; k < 7; k++) {
+            const np = [pts[0]];
+            for (let i = 1; i < pts.length; i++) {
+                const [ax, ay] = pts[i - 1],
+                    [bx, by] = pts[i];
+                const dx = bx - ax,
+                    dy = by - ay,
+                    d = Math.hypot(dx, dy) || 1,
+                    o = (r() - 0.5) * off;
+                np.push([(ax + bx) / 2 - (dy / d) * o, (ay + by) / 2 + (dx / d) * o], [bx, by]);
+            }
+            pts = np;
+            off *= 0.55;
+        }
+        if (depth < 2)
+            for (let i = 6; i < pts.length - 10; i++)
+                if (r() < branch * 0.03) {
+                    const [px, py] = pts[i],
+                        ang = Math.atan2(y1 - y0, x1 - x0) + (r() < 0.5 ? -1 : 1) * (0.35 + r() * 0.7),
+                        bl = L * (0.12 + r() * 0.28) * (1 - i / pts.length);
+                    GV.zap(c, px, py, px + Math.cos(ang) * bl, py + Math.sin(ang) * bl, r, col, width * 0.5, { rough, branch, depth: depth + 1 });
+                }
+        c.save();
+        c.lineJoin = 'round';
+        c.lineCap = 'round';
+        c.globalCompositeOperation = 'lighter';
+        [
+            [width * 10, 0.05],
+            [width * 4, 0.16],
+            [width * 1.8, 0.45],
+            [width * 0.8, 1]
+        ].forEach(([lw, a]) => {
+            c.strokeStyle = a === 1 ? 'rgba(255,255,255,.95)' : U.hexA(col, a);
+            c.lineWidth = lw;
+            c.beginPath();
+            pts.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py)));
+            c.stroke();
+        });
+        c.restore();
+    },
+    // отражение в воде: верх до линии y0 переворачивается вниз полосками со сдвигом — рябь
+    mirror(c, w, h, y0, { a = 0.4, squash = 1, wob = 0, strip = 2, blur = 0, r = Math.random } = {}) {
+        const top = Math.max(1, Math.round(y0));
+        const cv = document.createElement('canvas');
+        cv.width = w;
+        cv.height = top;
+        cv.getContext('2d').drawImage(c.canvas, 0, 0, w, top, 0, 0, w, top);
+        // отражение собирается отдельно и кладётся одним вызовом — размытие тогда считается один раз
+        const out = document.createElement('canvas');
+        out.width = w;
+        out.height = Math.max(1, h - top);
+        const o = out.getContext('2d');
+        for (let y = top; y < h; y += strip) {
+            const sy = top - (y - top) / squash - strip;
+            if (sy < 0) break;
+            const dx = wob ? (r() - 0.5) * wob * (0.4 + (y - top) / (h - top)) : 0;
+            o.drawImage(cv, 0, sy, w, strip, dx, y - top, w, strip);
+        }
+        c.save();
+        c.globalAlpha = a;
+        if (blur) c.filter = `blur(${blur}px)`;
+        c.drawImage(out, 0, top);
+        c.restore();
+    },
+    // спорткар сбоку: силуэт с подсветкой по контуру, нос справа
+    car(c, x0, gnd, W, r, { rim = '#ff3b3b', blur = false } = {}) {
+        const X = t => x0 + t * W,
+            Y = v => gnd - v * W;
+        const top = () => {
+            c.moveTo(X(0.0), Y(0.15));
+            c.quadraticCurveTo(X(0.01), Y(0.2), X(0.05), Y(0.205));
+            c.lineTo(X(0.2), Y(0.215));
+            c.bezierCurveTo(X(0.3), Y(0.225), X(0.36), Y(0.33), X(0.48), Y(0.335));
+            c.bezierCurveTo(X(0.58), Y(0.34), X(0.64), Y(0.3), X(0.72), Y(0.235));
+            c.lineTo(X(0.94), Y(0.18));
+            c.quadraticCurveTo(X(1), Y(0.165), X(1), Y(0.11));
+        };
+        c.fillStyle = '#060607';
+        c.beginPath();
+        top();
+        c.lineTo(X(0.985), Y(0.05));
+        c.lineTo(X(0.87), Y(0.05));
+        c.arc(X(0.79), Y(0.05), W * 0.082, 0, Math.PI, true);
+        c.lineTo(X(0.3), Y(0.05));
+        c.arc(X(0.22), Y(0.05), W * 0.082, 0, Math.PI, true);
+        c.lineTo(X(0.02), Y(0.05));
+        c.closePath();
+        c.fill();
+        // стекло
+        c.fillStyle = '#121218';
+        c.beginPath();
+        c.moveTo(X(0.31), Y(0.235));
+        c.bezierCurveTo(X(0.37), Y(0.31), X(0.42), Y(0.315), X(0.48), Y(0.318));
+        c.bezierCurveTo(X(0.57), Y(0.32), X(0.62), Y(0.29), X(0.68), Y(0.24));
+        c.closePath();
+        c.fill();
+        // колёса с хромовыми дисками
+        [0.22, 0.79].forEach(t => {
+            const wx = X(t),
+                wy = Y(0.068),
+                R = W * 0.07;
+            c.fillStyle = '#020203';
+            c.beginPath();
+            c.arc(wx, wy, R, 0, Math.PI * 2);
+            c.fill();
+            c.strokeStyle = 'rgba(200,206,216,.55)';
+            c.lineWidth = Math.max(1, W / 500);
+            c.beginPath();
+            c.arc(wx, wy, R * 0.7, 0, Math.PI * 2);
+            if (!blur)
+                for (let k = 0; k < 5; k++) {
+                    const a = (k / 5) * Math.PI * 2;
+                    c.moveTo(wx, wy);
+                    c.lineTo(wx + Math.cos(a) * R * 0.7, wy + Math.sin(a) * R * 0.7);
+                }
+            c.stroke();
+            if (blur) {
+                c.strokeStyle = 'rgba(200,206,216,.18)';
+                c.lineWidth = R * 0.4;
+                c.beginPath();
+                c.arc(wx, wy, R * 0.45, 0, Math.PI * 2);
+                c.stroke();
+            }
+        });
+        // подсветка контура: сзади цветом, к носу — хромом
+        c.save();
+        c.globalCompositeOperation = 'lighter';
+        c.lineCap = 'round';
+        c.lineJoin = 'round';
+        const g = c.createLinearGradient(X(0), 0, X(1), 0);
+        g.addColorStop(0, U.hexA(rim, 0.9));
+        g.addColorStop(0.55, U.hexA(rim, 0.35));
+        g.addColorStop(1, 'rgba(230,236,245,.75)');
+        [
+            [W / 90, 0.12],
+            [W / 260, 0.35],
+            [W / 700, 1]
+        ].forEach(([lw, a]) => {
+            c.globalAlpha = a;
+            c.strokeStyle = g;
+            c.lineWidth = Math.max(0.8, lw);
+            c.beginPath();
+            top();
+            c.stroke();
+        });
+        c.globalAlpha = 1;
+        GV.glow(c, X(0.015), Y(0.17), W * 0.05, '#ff2020', 0.8);
+        GV.glow(c, X(0.985), Y(0.14), W * 0.04, '#eaf2ff', 0.8);
+        if (blur)
+            for (let i = 0; i < 14; i++) {
+                const y = Y(0.06 + r() * 0.28);
+                const lg = c.createLinearGradient(X(-0.6), 0, X(0.05), 0);
+                lg.addColorStop(0, U.hexA(rim, 0));
+                lg.addColorStop(1, U.hexA(rim, 0.08 + r() * 0.15));
+                c.fillStyle = lg;
+                c.fillRect(X(-0.6), y, W * 0.65, 1 + r() * 1.5);
+            }
+        c.restore();
+    },
+    // линейка цвета по точкам [t, '#hex'] → [r,g,b]
+    ramp(stops, t) {
+        t = Math.max(0, Math.min(1, t));
+        for (let i = 1; i < stops.length; i++)
+            if (t <= stops[i][0]) {
+                const [a, ca] = stops[i - 1],
+                    [b, cb] = stops[i];
+                return mix(hexRgb(ca), hexRgb(cb), (t - a) / (b - a || 1));
+            }
+        return hexRgb(stops[stops.length - 1][1]);
+    },
+    // косые хлопья/капли: крупные ближние — размытые
+    flakes(c, w, h, r, n, col, { big = 0.08, slant = 0.3, maxR = 6 } = {}) {
+        for (let i = 0; i < n; i++) {
+            const x = r() * w,
+                y = r() * h;
+            if (r() < big) {
+                const s = maxR * (0.5 + r() * 0.5) * (w / 1400);
+                const g = c.createRadialGradient(x, y, 0, x, y, s * 2.2);
+                g.addColorStop(0, U.hexA(col, 0.5));
+                g.addColorStop(0.4, U.hexA(col, 0.22));
+                g.addColorStop(1, U.hexA(col, 0));
+                c.fillStyle = g;
+                c.beginPath();
+                c.arc(x, y, s * 2.2, 0, Math.PI * 2);
+                c.fill();
+            } else {
+                const s = 0.7 + r() * 1.3;
+                c.strokeStyle = U.hexA(col, 0.25 + r() * 0.5);
+                c.lineWidth = s;
+                c.lineCap = 'round';
+                c.beginPath();
+                c.moveTo(x, y);
+                c.lineTo(x + slant * s * 3, y + s * 3);
+                c.stroke();
+            }
+        }
+    }
+};
+
+Object.assign(GENERATORS, {
+    // ---- гроза ----
+    citystorm: {
+        name: 'Гроза над городом',
+        draw(c, w, h, r, pal, seed) {
+            GV.vgrad(c, w, h, [
+                [0, '#06080f'],
+                [0.6, '#141a2c'],
+                [1, '#0a0c14']
+            ]);
+            GV.cloudLayer(c, w, h, seed, '#3a4562', { scale: 2.6, y1: 0.7, a: 0.9 });
+            GV.glow(c, w * 0.62, h * 0.32, h * 0.5, '#9db4ff', 0.18);
+            GV.bolt(c, w * 0.62, h * 0.05, h * 0.62, r, '#b9c8ff', Math.max(1.6, w / 700));
+            GV.skyline(c, w, h, r, h * 0.98, { col: '#04050a', win: '#ffd27a', maxH: 0.3, dense: 0.1 });
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    plasma: {
+        name: 'Разряд',
+        draw(c, w, h, r, pal, seed) {
+            GV.vgrad(c, w, h, [
+                [0, '#02040a'],
+                [1, '#060b16']
+            ]);
+            GV.cloudLayer(c, w, h, seed, '#16304f', { scale: 2.2, a: 0.45, cut: 0.15 });
+            const cx = w * 0.5,
+                cy = h * 0.52,
+                R = h * 0.075;
+            GV.glow(c, cx, cy, h * 0.75, '#3aa8ff', 0.22);
+            // дуги от шара к краям — как у катушки Теслы
+            const n = 9 + ((r() * 4) | 0);
+            for (let i = 0; i < n; i++) {
+                const ang = (i / n) * Math.PI * 2 + (r() - 0.5) * 0.5,
+                    d = h * (0.32 + r() * 0.45);
+                GV.zap(c, cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, cx + Math.cos(ang) * d * 1.3, cy + Math.sin(ang) * d, r, i % 3 ? '#6fd0ff' : '#b58cff', Math.max(1, w / 1100), { rough: 0.3, branch: 0.5 });
+            }
+            // сам шар: стеклянный, со светящимся ядром
+            const g = c.createRadialGradient(cx - R * 0.3, cy - R * 0.35, R * 0.05, cx, cy, R);
+            g.addColorStop(0, '#ffffff');
+            g.addColorStop(0.25, '#bfe9ff');
+            g.addColorStop(0.7, '#2a7fd0');
+            g.addColorStop(1, 'rgba(10,30,70,.9)');
+            c.fillStyle = g;
+            c.beginPath();
+            c.arc(cx, cy, R, 0, Math.PI * 2);
+            c.fill();
+            GV.glow(c, cx, cy, R * 2.6, '#9fe0ff', 0.45);
+            GV.vignette(c, w, h, 0.6);
+        }
+    },
+    stormsea: {
+        name: 'Шторм',
+        draw(c, w, h, r, pal, seed) {
+            const hz = h * 0.5;
+            GV.vgrad(c, w, h, [
+                [0, '#07090d'],
+                [0.45, '#232b35'],
+                [0.5, '#3a4552'],
+                [0.501, '#151b22'],
+                [1, '#06080b']
+            ]);
+            GV.cloudLayer(c, w, h, seed, '#4a5664', { scale: 2.8, y1: 0.5, a: 0.95, oct: 5 });
+            GV.cloudLayer(c, w, h, seed + 3, '#0b0e13', { scale: 2, y1: 0.42, a: 0.8, cut: 0.1 });
+            // просвет у горизонта
+            c.save();
+            c.translate(w * 0.68, hz);
+            c.scale(3.5, 1);
+            GV.glow(c, 0, 0, h * 0.12, '#d6e0ec', 0.35);
+            c.restore();
+            // далёкая молния
+            GV.zap(c, w * 0.2, h * 0.1, w * 0.23, hz - 1, r, '#c9d6ff', Math.max(0.8, w / 1500), { rough: 0.18, branch: 0.3 });
+            // волны: ряды от горизонта к зрителю, ближе — выше и темнее
+            const N = 22;
+            for (let i = 0; i < N; i++) {
+                const t = (i + 1) / N,
+                    y = hz + Math.pow(t, 1.8) * (h - hz) * 1.05,
+                    amp = h * (0.004 + 0.07 * Math.pow(t, 1.6)),
+                    wl = w * (0.03 + 0.22 * t),
+                    ph = r() * 6;
+                const top = [];
+                for (let x = -20; x <= w + 20; x += 6) {
+                    const s = Math.sin((x / wl) * Math.PI * 2 + ph) * 0.5 + 0.5 + Math.sin((x / wl) * 4.7 + ph * 2) * 0.15;
+                    top.push([x, y - amp * Math.pow(Math.max(0, s), 2.2)]);
+                }
+                const shade = mix(hexRgb('#1d2630'), hexRgb('#06090c'), t);
+                c.fillStyle = `rgb(${shade.map(Math.round).join(',')})`;
+                c.beginPath();
+                c.moveTo(-20, h + 10);
+                top.forEach(([x, yy]) => c.lineTo(x, yy));
+                c.lineTo(w + 20, h + 10);
+                c.fill();
+                // пена на гребнях
+                c.strokeStyle = `rgba(190,205,220,${0.05 + t * 0.12})`;
+                c.lineWidth = Math.max(0.8, (w / 1600) * (1 + t));
+                c.beginPath();
+                top.forEach(([x, yy], k) => (k ? c.lineTo(x, yy) : c.moveTo(x, yy)));
+                c.stroke();
+                if (t > 0.45)
+                    top.forEach(([x, yy]) => {
+                        if (y - yy < amp * 0.8 || r() < 0.4) return;
+                        const g = c.createRadialGradient(x, yy + amp * 0.1, 0, x, yy + amp * 0.1, amp * 0.35);
+                        g.addColorStop(0, `rgba(225,232,240,${0.1 + t * 0.12})`);
+                        g.addColorStop(1, 'rgba(225,232,240,0)');
+                        c.fillStyle = g;
+                        c.fillRect(x - amp * 0.35, yy - amp * 0.25, amp * 0.7, amp * 0.7);
+                    });
+            }
+            GV.rain(c, w, h, r, 700, 0.06, 26);
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    fieldstorm: {
+        name: 'Молния над полем',
+        draw(c, w, h, r, pal, seed) {
+            const hz = h * 0.74;
+            GV.vgrad(c, w, h, [
+                [0, '#08070f'],
+                [0.55, '#1d1a2c'],
+                [0.74, '#4a3e5c'],
+                [0.741, '#0a0810'],
+                [1, '#040306']
+            ]);
+            GV.cloudLayer(c, w, h, seed, '#3a3452', { scale: 2.4, y1: 0.66, a: 0.9 });
+            GV.glow(c, w * 0.6, hz, h * 0.5, '#b9a6ff', 0.25);
+            // одна большая ветвистая молния через всё небо
+            const tx = w * 0.6;
+            GV.zap(c, w * 0.08, h * 0.04, tx, hz, r, '#d9ccff', Math.max(1.6, w / 600), { rough: 0.2, branch: 1 });
+            GV.glow(c, tx, hz, h * 0.12, '#ffffff', 0.5);
+            // поле
+            c.strokeStyle = '#06050a';
+            c.lineWidth = Math.max(1, w / 1200);
+            c.beginPath();
+            for (let i = 0; i < w * 0.8; i++) {
+                const x = r() * w;
+                c.moveTo(x, hz + 4);
+                c.lineTo(x + (r() - 0.5) * 6, hz - r() * h * 0.018);
+            }
+            c.stroke();
+            // одинокое дерево
+            const tree = (x, y, len, ang, wd, d) => {
+                const x2 = x + Math.cos(ang) * len,
+                    y2 = y + Math.sin(ang) * len;
+                c.strokeStyle = '#030206';
+                c.lineWidth = wd;
+                c.lineCap = 'round';
+                c.beginPath();
+                c.moveTo(x, y);
+                c.lineTo(x2, y2);
+                c.stroke();
+                if (d > 6 || len < 3) {
+                    c.fillStyle = '#030206';
+                    c.beginPath();
+                    c.arc(x2, y2, len * 0.9 + 2, 0, Math.PI * 2);
+                    c.fill();
+                    return;
+                }
+                const k = 2 + (r() < 0.35 ? 1 : 0);
+                for (let i = 0; i < k; i++) tree(x2, y2, len * (0.68 + r() * 0.15), ang + (i - (k - 1) / 2) * (0.5 + r() * 0.3), wd * 0.68, d + 1);
+            };
+            tree(w * 0.24, hz + 2, h * 0.075, -Math.PI / 2, Math.max(3, w / 220), 0);
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    // ---- ночной город ----
+    snowcity: {
+        name: 'Ночная Москва',
+        draw(c, w, h, r) {
+            GV.vgrad(c, w, h, [
+                [0, '#070d18'],
+                [0.65, '#18304a'],
+                [1, '#2a2a33']
+            ]);
+            GV.glow(c, w * 0.5, h, h * 0.8, '#ffb454', 0.2);
+            GV.skyline(c, w, h, r, h * 0.9, { col: '#0a111c', win: '#ffcf7a', maxH: 0.1, dense: 0.12, winA: 0.5 });
+            // высотка: ярусы, шпиль, звезда
+            const cx = w * 0.5,
+                base = h * 0.95,
+                U0 = h * 0.85;
+            c.fillStyle = '#0c1018';
+            c.fillRect(cx - U0 * 0.62, base - U0 * 0.22, U0 * 1.24, U0 * 0.3); // крылья
+            c.fillRect(cx - U0 * 0.48, base - U0 * 0.3, U0 * 0.2, U0 * 0.1);
+            c.fillRect(cx + U0 * 0.28, base - U0 * 0.3, U0 * 0.2, U0 * 0.1);
+            const tiers = [
+                [0.36, 0.22],
+                [0.27, 0.13],
+                [0.2, 0.12],
+                [0.14, 0.1],
+                [0.09, 0.07]
+            ];
+            let y = base - U0 * 0.22;
+            const lit = c.createLinearGradient(0, base, 0, base - U0 * 0.8);
+            lit.addColorStop(0, '#3b3328');
+            lit.addColorStop(0.5, '#1d1d22');
+            lit.addColorStop(1, '#10131b');
+            tiers.forEach(([tw, th], i) => {
+                const bw = U0 * tw,
+                    bh = U0 * th;
+                c.fillStyle = lit;
+                c.fillRect(cx - bw / 2, y - bh, bw, bh);
+                // башенки по углам яруса
+                c.fillStyle = '#141720';
+                [-1, 1].forEach(s => {
+                    c.beginPath();
+                    c.moveTo(cx + (s * bw) / 2, y - bh);
+                    c.lineTo(cx + (s * bw) / 2 - s * U0 * 0.012, y - bh - U0 * 0.035);
+                    c.lineTo(cx + (s * bw) / 2 - s * U0 * 0.024, y - bh);
+                    c.fill();
+                });
+                // окна
+                for (let wy = y - bh + 5; wy < y - 4; wy += 7)
+                    for (let wx = cx - bw / 2 + 4; wx < cx + bw / 2 - 4; wx += 6)
+                        if (r() < 0.32 - i * 0.03) {
+                            c.fillStyle = `rgba(255,${190 + ((r() * 40) | 0)},120,${0.45 + r() * 0.45})`;
+                            c.fillRect(wx, wy, 2.4, 3);
+                        }
+                y -= bh;
+            });
+            // шпиль
+            const sw = U0 * 0.045,
+                sh = U0 * 0.2;
+            const sg = c.createLinearGradient(cx - sw, 0, cx + sw, 0);
+            sg.addColorStop(0, '#2a2418');
+            sg.addColorStop(0.5, '#c9a45a');
+            sg.addColorStop(1, '#2a2418');
+            c.fillStyle = sg;
+            c.beginPath();
+            c.moveTo(cx - sw, y);
+            c.lineTo(cx, y - sh);
+            c.lineTo(cx + sw, y);
+            c.fill();
+            const sy = y - sh - U0 * 0.018,
+                sr = U0 * 0.016;
+            GV.glow(c, cx, sy, sr * 6, '#ff3b3b', 0.55);
+            c.fillStyle = '#ff4a3d';
+            c.beginPath();
+            for (let k = 0; k < 10; k++) {
+                const a = -Math.PI / 2 + (k * Math.PI) / 5,
+                    rr = k % 2 ? sr * 0.42 : sr;
+                c.lineTo(cx + Math.cos(a) * rr, sy + Math.sin(a) * rr);
+            }
+            c.fill();
+            // прожекторы снизу
+            c.globalCompositeOperation = 'lighter';
+            [-1, 1].forEach(s => {
+                const g = c.createLinearGradient(0, base, 0, base - U0 * 0.7);
+                g.addColorStop(0, 'rgba(255,200,130,.16)');
+                g.addColorStop(1, 'rgba(255,200,130,0)');
+                c.fillStyle = g;
+                c.beginPath();
+                c.moveTo(cx + s * U0 * 0.4, base);
+                c.lineTo(cx + s * U0 * 0.02, base - U0 * 0.75);
+                c.lineTo(cx + s * U0 * 0.1, base - U0 * 0.75);
+                c.closePath();
+                c.fill();
+            });
+            c.globalCompositeOperation = 'source-over';
+            GV.skyline(c, w, h, r, h * 1.01, { col: '#05080d', win: '#ffb454', maxH: 0.06, dense: 0.1, minW: 40, maxW: 120 });
+            GV.flakes(c, w, h, r, 650, '#eef3ff', { big: 0.06, slant: 0.45, maxR: 9 });
+            GV.vignette(c, w, h, 0.45);
+        }
+    },
+    citylights: {
+        name: 'Москва с высоты',
+        lowres: 0.5,
+        draw(c, w, h, r, pal, seed) {
+            c.fillStyle = '#050407';
+            c.fillRect(0, 0, w, h);
+            const n = noise2(seed);
+            const cx = w * 0.52,
+                cy = h * 0.55,
+                S = h;
+            GV.glow(c, cx, cy, S * 0.8, '#ff9a3d', 0.12);
+            c.globalCompositeOperation = 'lighter';
+            // жилые кварталы: огни гуще к центру
+            for (let i = 0; i < w * h * 0.12; i++) {
+                const x = r() * w,
+                    y = r() * h;
+                const d = Math.hypot((x - cx) / 1.3, y - cy) / S;
+                const p = Math.exp(-d * 2.4) * (0.4 + n((x / w) * 6, (y / h) * 6, 3) + 0.5);
+                if (r() > p) continue;
+                c.fillStyle = U.hexA(r() < 0.8 ? '#ffb454' : '#fff1d0', 0.2 + r() * 0.45);
+                c.fillRect(x, y, 1, 1);
+            }
+            // огни вдоль линии: кольца и вылетные магистрали
+            const dotted = (f, steps, col, a) => {
+                for (let i = 0; i <= steps; i++) {
+                    const [x, y] = f(i / steps);
+                    c.fillStyle = U.hexA(col, a * (0.5 + r() * 0.5));
+                    c.fillRect(x + (r() - 0.5) * 2, y + (r() - 0.5) * 2, 1.4, 1.4);
+                }
+            };
+            [
+                [0.09, 0.45],
+                [0.2, 0.35],
+                [0.42, 0.4]
+            ].forEach(([R, a]) => {
+                const rx = S * R * 1.35,
+                    ry = S * R;
+                const wob = r() * 6;
+                dotted(t => [cx + Math.cos(t * Math.PI * 2) * rx * (1 + 0.05 * Math.sin(t * 9 + wob)), cy + Math.sin(t * Math.PI * 2) * ry], Math.round(rx * 4), '#ffd08a', a);
+                c.strokeStyle = 'rgba(255,170,80,.04)';
+                c.lineWidth = 4;
+                c.beginPath();
+                c.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+                c.stroke();
+            });
+            for (let k = 0; k < 12; k++) {
+                const ang = (k / 12) * Math.PI * 2 + (r() - 0.5) * 0.25,
+                    bend = (r() - 0.5) * 0.3;
+                dotted(t => [cx + Math.cos(ang + bend * t) * t * S * 1.1 * 1.35, cy + Math.sin(ang + bend * t) * t * S * 1.1], 260, '#ffc070', 0.3);
+            }
+            c.globalCompositeOperation = 'source-over';
+            // река — тонкая, петлёй через центр
+            c.strokeStyle = '#040306';
+            c.lineWidth = Math.max(2, h * 0.012);
+            c.beginPath();
+            c.moveTo(-10, h * 0.35);
+            c.bezierCurveTo(w * 0.3, h * 0.25, w * 0.35, h * 0.75, cx, h * 0.62);
+            c.bezierCurveTo(w * 0.68, h * 0.5, w * 0.7, h * 0.9, w + 10, h * 0.8);
+            c.stroke();
+            GV.vignette(c, w, h, 0.6);
+        }
+    },
+    trails: {
+        name: 'Огни моста',
+        draw(c, w, h, r) {
+            const deck = h * 0.5,
+                wl = h * 0.6;
+            GV.vgrad(c, w, h, [
+                [0, '#07070f'],
+                [0.55, '#1c1a2e'],
+                [0.6, '#2a2236'],
+                [1, '#06060a']
+            ]);
+            GV.stars(c, w, h, r, 120, 0.35, 0.35);
+            GV.skyline(c, w, h, r, wl, { col: '#0b0a12', win: '#ffd27a', maxH: 0.08, dense: 0.08, winA: 0.4 });
+            // пилоны и ванты
+            c.strokeStyle = 'rgba(190,190,210,.22)';
+            c.lineWidth = Math.max(0.6, w / 2400);
+            [0.3, 0.72].forEach(px => {
+                const x = w * px,
+                    top = h * 0.16;
+                c.beginPath();
+                for (let k = 1; k <= 9; k++) {
+                    c.moveTo(x, top + k * h * 0.012);
+                    c.lineTo(x - k * w * 0.022, deck);
+                    c.moveTo(x, top + k * h * 0.012);
+                    c.lineTo(x + k * w * 0.022, deck);
+                }
+                c.stroke();
+                c.fillStyle = '#0c0b14';
+                c.fillRect(x - w * 0.006, top, w * 0.012, wl - top);
+                GV.glow(c, x, top, h * 0.02, '#ff3b3b', 0.7);
+            });
+            // полотно
+            c.fillStyle = '#09080e';
+            c.fillRect(0, deck, w, h * 0.022);
+            for (let x = w * 0.03; x < w; x += w * 0.06) {
+                c.fillStyle = '#0a090f';
+                c.fillRect(x - 1, deck - h * 0.03, 2, h * 0.03);
+                GV.glow(c, x, deck - h * 0.03, h * 0.02, '#ffcf8a', 0.6);
+            }
+            // следы фар: длинная выдержка, полосы вдоль полотна
+            c.globalCompositeOperation = 'lighter';
+            const band = (y0, col, n) => {
+                for (let i = 0; i < n; i++) {
+                    const x = r() * w * 0.6 - w * 0.1,
+                        len = w * (0.4 + r() * 0.7),
+                        y = y0 + (r() - 0.5) * h * 0.006;
+                    const g = c.createLinearGradient(x, 0, x + len, 0);
+                    g.addColorStop(0, U.hexA(col, 0));
+                    g.addColorStop(0.2, U.hexA(col, 0.25 + r() * 0.35));
+                    g.addColorStop(0.85, U.hexA(col, 0.25 + r() * 0.35));
+                    g.addColorStop(1, U.hexA(col, 0));
+                    c.fillStyle = g;
+                    c.fillRect(x, y, len, 1 + r() * 1.6);
+                }
+            };
+            band(deck + h * 0.005, '#ff3030', 26);
+            band(deck + h * 0.013, '#fff3dc', 22);
+            band(deck + h * 0.009, '#ffb020', 8);
+            c.globalCompositeOperation = 'source-over';
+            c.fillStyle = '#05050a';
+            c.fillRect(0, wl, w, h - wl);
+            GV.mirror(c, w, h, wl, { a: 0.5, squash: 0.8, wob: w * 0.008, r });
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    wetroad: {
+        name: 'Мокрый асфальт',
+        draw(c, w, h, r, pal, seed) {
+            const vx = w * 0.5,
+                hz = h * 0.46;
+            GV.vgrad(c, w, h, [
+                [0, '#05050a'],
+                [0.46, '#1a1420'],
+                [0.461, '#0b0a0e'],
+                [1, '#0e0d12']
+            ]);
+            GV.cloudLayer(c, w, h, seed, '#2a2030', { scale: 2.5, y1: 0.44, a: 0.6 });
+            GV.glow(c, vx, hz, h * 0.35, '#ff9a4d', 0.22);
+            GV.skyline(c, w, h, r, hz, { col: '#0a080d', win: '#ffd27a', maxH: 0.05, dense: 0.1, winA: 0.4 });
+            c.fillStyle = '#09080c';
+            c.fillRect(0, hz, w, h - hz);
+            // полотно к точке схода
+            c.fillStyle = '#121117';
+            c.beginPath();
+            c.moveTo(vx - w * 0.01, hz);
+            c.lineTo(vx + w * 0.01, hz);
+            c.lineTo(w * 1.1, h);
+            c.lineTo(-w * 0.1, h);
+            c.fill();
+            // фонари по краям и их мягкие отражения — только на асфальте
+            c.globalCompositeOperation = 'lighter';
+            for (let i = 0; i < 9; i++) {
+                const t = Math.pow(i / 9, 1.6),
+                    s = 1 - t;
+                [-1, 1].forEach(side => {
+                    const bx = vx + side * (w * 0.62 * s + w * 0.012),
+                        by = hz + (h - hz) * s * 0.9,
+                        top = hz - h * 0.42 * s - 3;
+                    c.strokeStyle = 'rgba(40,36,44,.9)';
+                    c.lineWidth = Math.max(1, 5 * s);
+                    c.globalCompositeOperation = 'source-over';
+                    c.beginPath();
+                    c.moveTo(bx, by);
+                    c.lineTo(bx, top);
+                    c.lineTo(bx - side * w * 0.04 * s, top);
+                    c.stroke();
+                    c.globalCompositeOperation = 'lighter';
+                    const lx = bx - side * w * 0.04 * s;
+                    GV.glow(c, lx, top, 6 + h * 0.06 * s, '#ffb35a', 0.65);
+                    // отражение — мягкое вытянутое пятно на асфальте под фонарём
+                    const ry = by + (by - top) * 0.12,
+                        rl = (h - hz) * 0.45 * s + 10;
+                    c.save();
+                    c.translate(lx - side * w * 0.03 * s, ry + rl * 0.5);
+                    c.scale(0.12, 1);
+                    GV.glow(c, 0, 0, rl * 0.6, '#ffaa50', 0.22);
+                    c.restore();
+                });
+            }
+            // разметка с бликами
+            for (let i = 0; i < 14; i++) {
+                const t0 = i / 14,
+                    t1 = t0 + 0.035;
+                const y0 = hz + (h - hz) * Math.pow(t0, 2),
+                    y1 = hz + (h - hz) * Math.pow(t1, 2);
+                const w0 = 1 + Math.pow(t0, 2) * w * 0.012,
+                    w1 = 1 + Math.pow(t1, 2) * w * 0.012;
+                c.fillStyle = `rgba(255,235,200,${0.15 + t0 * 0.35})`;
+                c.beginPath();
+                c.moveTo(vx - w0, y0);
+                c.lineTo(vx + w0, y0);
+                c.lineTo(vx + w1, y1);
+                c.lineTo(vx - w1, y1);
+                c.fill();
+            }
+            // далёкая машина
+            GV.glow(c, vx - w * 0.012, hz + h * 0.02, h * 0.012, '#ff2a2a', 0.9);
+            GV.glow(c, vx + w * 0.004, hz + h * 0.02, h * 0.012, '#ff2a2a', 0.9);
+            c.globalCompositeOperation = 'source-over';
+            GV.rain(c, w, h, r, 450, 0.08, 20);
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    serpentine: {
+        name: 'Серпантин',
+        // живой: по дороге едут машины (LiveRoad), на превью — застывшие следы фар
+        road: true,
+        draw(c, w, h, r, pal, seed, { bare = false } = {}) {
+            GV.vgrad(c, w, h, [
+                [0, '#0a0712'],
+                [0.4, '#2c1830'],
+                [0.5, '#6a2f3a'],
+                [1, '#0b0709']
+            ]);
+            GV.stars(c, w, h, r, 160, 0.35, 0.5);
+            GV.ridge(c, w, h, r, h * 0.44, h * 0.16, '#1e1020', 1.5);
+            GV.ridge(c, w, h, r, h * 0.56, h * 0.18, '#120a14', 1.2);
+            // дорога-лента: сужается вдаль и петляет
+            const ph = r() * 2;
+            const P = t => {
+                const y = h * (1.04 - 0.58 * (1 - Math.pow(1 - t, 1.6)));
+                const x = w * (0.5 + 0.3 * Math.sin(t * Math.PI * 2.6 + ph) * (1 - t * 0.7));
+                return [x, y, w * 0.32 * Math.pow(1 - t, 1.7) + 1.5];
+            };
+            const N = 140;
+            const L = [],
+                R = [];
+            for (let i = 0; i <= N; i++) {
+                const [x, y, rw] = P(i / N);
+                L.push([x - rw / 2, y]);
+                R.push([x + rw / 2, y]);
+            }
+            c.fillStyle = '#17131c';
+            c.beginPath();
+            L.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+            R.slice()
+                .reverse()
+                .forEach(([x, y]) => c.lineTo(x, y));
+            c.fill();
+            // ограждение со светоотражателями
+            [L, R].forEach(side => {
+                c.strokeStyle = 'rgba(170,165,190,.35)';
+                c.lineWidth = Math.max(0.8, w / 1600);
+                c.beginPath();
+                side.forEach(([x, y], i) => (i ? c.lineTo(x, y - 2) : c.moveTo(x, y - 2)));
+                c.stroke();
+                side.forEach(([x, y], i) => {
+                    if (i % 6) return;
+                    c.fillStyle = 'rgba(255,190,90,.7)';
+                    c.fillRect(x - 1, y - 3, 2, 2);
+                });
+            });
+            if (bare) {
+                GV.vignette(c, w, h, 0.45);
+                return P;
+            }
+            // след фар по центру полосы
+            c.globalCompositeOperation = 'lighter';
+            [
+                ['#fff1d6', -0.18, 0.6],
+                ['#ff3b30', 0.18, 0.7]
+            ].forEach(([col, off, a]) => {
+                for (let pass = 0; pass < 3; pass++) {
+                    c.strokeStyle = U.hexA(col, [0.08, 0.2, a][pass]);
+                    c.lineWidth = Math.max(1, w / 900) * [6, 2.5, 1][pass];
+                    c.beginPath();
+                    for (let i = 0; i <= N * 0.85; i++) {
+                        const [x, y, rw] = P(i / N);
+                        i ? c.lineTo(x + rw * off, y) : c.moveTo(x + rw * off, y);
+                    }
+                    c.stroke();
+                }
+            });
+            c.globalCompositeOperation = 'source-over';
+            GV.vignette(c, w, h, 0.45);
+        }
+    },
+    towers: {
+        name: 'Москва-Сити',
+        draw(c, w, h, r) {
+            GV.vgrad(c, w, h, [
+                [0, '#05071a'],
+                [0.7, '#1b1f5a'],
+                [1, '#2a1f5f']
+            ]);
+            GV.stars(c, w, h, r, 120, 0.5, 0.4);
+            GV.glow(c, w * 0.5, h, h * 0.9, '#7c7cff', 0.25);
+            // башни: стекло с вертикальным бликом
+            const base = h * 0.98;
+            for (let i = 0; i < 9; i++) {
+                const bw = w * (0.04 + r() * 0.05),
+                    x = w * (0.18 + i * 0.075) + (r() - 0.5) * 20,
+                    bh = h * (0.35 + r() * 0.45);
+                const g = c.createLinearGradient(x, 0, x + bw, 0);
+                g.addColorStop(0, '#0b1030');
+                g.addColorStop(0.5, '#2c3a8a');
+                g.addColorStop(1, '#0a0d24');
+                c.fillStyle = g;
+                c.beginPath();
+                c.moveTo(x, base);
+                c.lineTo(x, base - bh);
+                c.lineTo(x + bw * (r() < 0.5 ? 0.6 : 1), base - bh - h * 0.04 * r());
+                c.lineTo(x + bw, base - bh * 0.97);
+                c.lineTo(x + bw, base);
+                c.fill();
+                for (let y = base - bh + 8; y < base; y += 9) {
+                    c.fillStyle = `rgba(160,190,255,${0.05 + r() * 0.12})`;
+                    c.fillRect(x + 2, y, bw - 4, 1);
+                }
+            }
+            GV.skyline(c, w, h, r, h, { col: '#04050f', win: '#a8c4ff', maxH: 0.12, dense: 0.08 });
+            GV.vignette(c, w, h, 0.45);
+        }
+    },
+    // ---- неон и дождь ----
+    tokyo: {
+        name: 'Токио под дождём',
+        draw(c, w, h, r) {
+            const vx = w * 0.5,
+                vy = h * 0.5;
+            GV.vgrad(c, w, h, [
+                [0, '#030206'],
+                [0.5, '#120a1a'],
+                [1, '#07050b']
+            ]);
+            GV.glow(c, vx, vy, h * 0.3, '#ff4fa3', 0.18);
+            // фасады по обе стороны переулка
+            const S = [1, 0.72, 0.52, 0.38, 0.28, 0.2, 0.14, 0.1, 0.07];
+            const signs = [];
+            [-1, 1].forEach(side => {
+                for (let k = 0; k < S.length - 1; k++) {
+                    const a = S[k],
+                        b = S[k + 1],
+                        tall = 0.9 + r() * 0.8;
+                    const xa = vx + side * w * 0.6 * a,
+                        xb = vx + side * w * 0.6 * b;
+                    c.fillStyle = k % 2 ? '#1a1224' : '#22172e';
+                    c.beginPath();
+                    c.moveTo(xa, vy - h * 0.7 * a * tall);
+                    c.lineTo(xb, vy - h * 0.7 * b * tall);
+                    c.lineTo(xb, vy + h * 0.45 * b);
+                    c.lineTo(xa, vy + h * 0.45 * a);
+                    c.fill();
+                    // окна
+                    for (let j = 0; j < 6; j++)
+                        if (r() < 0.4) {
+                            const t = r(),
+                                x = xa + (xb - xa) * t,
+                                s = a + (b - a) * t,
+                                y = vy - h * 0.6 * s * r();
+                            c.fillStyle = `rgba(255,200,150,${0.15 + r() * 0.3})`;
+                            c.fillRect(x, y, Math.max(1, 6 * s), Math.max(1, 8 * s));
+                        }
+                    for (let q = 0; q < 2; q++)
+                        if (r() < 0.8) signs.push({ x: xa + (xb - xa) * (0.1 + q * 0.45), s: a, side, col: ['#ff4fa3', '#3ad1ff', '#ff6b9d', '#7cf3ff', '#c56bff'][(r() * 5) | 0], y: vy - h * (0.1 + r() * 0.45) * a });
+                }
+            });
+            // мостовая
+            c.fillStyle = '#0a0710';
+            c.beginPath();
+            c.moveTo(vx - w * 0.6 * 0.07, vy + h * 0.45 * 0.07);
+            c.lineTo(vx + w * 0.6 * 0.07, vy + h * 0.45 * 0.07);
+            c.lineTo(w * 1.2, h * 1.2);
+            c.lineTo(-w * 0.2, h * 1.2);
+            c.fill();
+            // вывески на фасадах и их отражения в лужах
+            c.save();
+            c.globalCompositeOperation = 'lighter';
+            signs.reverse().forEach(({ x, s, side, col, y }) => {
+                const sw = w * 0.035 * s + 2,
+                    sh = h * 0.28 * s + 4,
+                    sx = side < 0 ? x : x - sw;
+                GV.glow(c, sx + sw / 2, y + sh / 2, sh * 0.7, col, 0.25);
+                c.fillStyle = U.hexA(col, 0.55);
+                c.fillRect(sx, y, sw, sh);
+                c.fillStyle = 'rgba(20,6,20,.55)';
+                for (let k = y + sh * 0.08; k < y + sh * 0.9; k += sh / 6) c.fillRect(sx + sw * 0.25, k, sw * 0.5, sh / 11);
+                const gy = vy + h * 0.45 * s;
+                const g = c.createLinearGradient(0, gy, 0, gy + sh * 1.3);
+                g.addColorStop(0, U.hexA(col, 0.28));
+                g.addColorStop(1, U.hexA(col, 0));
+                c.fillStyle = g;
+                c.fillRect(sx - sw * 0.2, gy, sw * 1.4, sh * 1.3);
+            });
+            c.restore();
+            GV.rain(c, w, h, r, 900, 0.09, 24);
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    osaka: {
+        name: 'Осака',
+        draw(c, w, h, r) {
+            const wl = h * 0.62;
+            GV.vgrad(c, w, h, [
+                [0, '#0c0605'],
+                [0.62, '#2a120a'],
+                [1, '#0a0504']
+            ]);
+            GV.glow(c, w * 0.5, wl, h * 0.5, '#ff7a3d', 0.15);
+            // фасады вдоль канала
+            for (let x = -10; x < w; ) {
+                const bw = w * (0.05 + r() * 0.08),
+                    bh = h * (0.25 + r() * 0.3);
+                c.fillStyle = r() < 0.5 ? '#140a08' : '#1b0e0a';
+                c.fillRect(x, wl - bh, bw, bh);
+                // вывески: вертикальные полосы и горизонтальные панели
+                c.save();
+                c.globalCompositeOperation = 'lighter';
+                for (let k = 0; k < 3; k++) {
+                    const col = ['#ff6b3d', '#ffd166', '#ff3b3b', '#ffa94d'][(r() * 4) | 0],
+                        vert = r() < 0.55;
+                    const sw = vert ? bw * 0.18 : bw * (0.5 + r() * 0.4),
+                        sh = vert ? bh * (0.3 + r() * 0.4) : bh * 0.07,
+                        sx = x + r() * (bw - sw),
+                        sy = wl - bh + r() * (bh - sh) * 0.9;
+                    GV.glow(c, sx + sw / 2, sy + sh / 2, Math.max(sw, sh) * 0.8, col, 0.18);
+                    c.fillStyle = U.hexA(col, 0.6);
+                    c.fillRect(sx, sy, sw, sh);
+                }
+                c.restore();
+                x += bw + 1;
+            }
+            // большой экран
+            const bx = w * 0.16,
+                by = wl - h * 0.48,
+                bw = w * 0.2,
+                bh = h * 0.14;
+            const g = c.createLinearGradient(bx, by, bx + bw, by + bh);
+            g.addColorStop(0, '#ff9a3d');
+            g.addColorStop(0.5, '#ff3b5c');
+            g.addColorStop(1, '#ffd166');
+            c.fillStyle = g;
+            c.fillRect(bx, by, bw, bh);
+            c.fillStyle = 'rgba(30,8,6,.5)';
+            c.fillRect(bx + bw * 0.08, by + bh * 0.3, bw * 0.5, bh * 0.14);
+            c.fillRect(bx + bw * 0.08, by + bh * 0.55, bw * 0.34, bh * 0.1);
+            GV.glow(c, bx + bw / 2, by + bh / 2, bw * 0.8, '#ff6b3d', 0.25);
+            // набережная и вода с рябью
+            c.fillStyle = '#080403';
+            c.fillRect(0, wl, w, h - wl);
+            c.fillStyle = '#120806';
+            c.fillRect(0, wl - h * 0.012, w, h * 0.012);
+            GV.mirror(c, w, h, wl - h * 0.012, { a: 0.55, squash: 0.9, wob: w * 0.012, strip: 3, r });
+            for (let y = wl; y < h; y += 3 + r() * 5) {
+                c.fillStyle = `rgba(8,4,3,${0.2 + r() * 0.3})`;
+                c.fillRect(0, y, w, 1);
+            }
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    neonstreet: {
+        name: 'Неоновая улица',
+        draw(c, w, h, r) {
+            const gnd = h * 0.74;
+            GV.vgrad(c, w, h, [
+                [0, '#06040e'],
+                [0.74, '#140c26'],
+                [0.741, '#07050c'],
+                [1, '#0b0814']
+            ]);
+            // провода
+            c.strokeStyle = 'rgba(0,0,0,.65)';
+            c.lineWidth = Math.max(1, w / 1400);
+            for (let k = 0; k < 5; k++) {
+                const y0 = h * (0.04 + r() * 0.12),
+                    y1 = h * (0.04 + r() * 0.12);
+                c.beginPath();
+                c.moveTo(-10, y0);
+                c.quadraticCurveTo(w / 2, Math.max(y0, y1) + h * (0.05 + r() * 0.08), w + 10, y1);
+                c.stroke();
+            }
+            // витрины в ряд, у каждой своя неоновая фигура
+            const cols = ['#c56bff', '#3ad1ff', '#ff4fd8', '#5cffc8'];
+            for (let x = 0; x < w; ) {
+                const bw = w * (0.13 + r() * 0.08),
+                    top = h * (0.2 + r() * 0.12);
+                c.fillStyle = r() < 0.5 ? '#0e0a18' : '#120d1e';
+                c.fillRect(x, top, bw - 2, gnd - top);
+                // окно витрины
+                const wy = gnd - h * 0.24;
+                const wg = c.createLinearGradient(0, wy, 0, gnd);
+                wg.addColorStop(0, 'rgba(120,90,200,.12)');
+                wg.addColorStop(1, 'rgba(120,90,200,.28)');
+                c.fillStyle = wg;
+                c.fillRect(x + bw * 0.08, wy, bw * 0.84, gnd - wy - 2);
+                // вывеска словом, неоновой трубкой
+                const col = cols[(r() * cols.length) | 0],
+                    word = ['БАР', '24/7', 'КАФЕ', 'RAMEN', 'CLUB', 'ОТКРЫТО', 'KARAOKE', 'АПТЕКА', 'HOTEL', 'ШАУРМА'][(r() * 10) | 0],
+                    sx = x + bw / 2,
+                    sy = top + (wy - top) * (0.3 + r() * 0.45);
+                let fs = (wy - top) * 0.32;
+                c.save();
+                c.font = `700 ${fs}px sans-serif`;
+                fs = Math.min(fs, (fs * bw * 0.82) / Math.max(1, c.measureText(word).width));
+                c.font = `700 ${fs}px sans-serif`;
+                c.textAlign = 'center';
+                c.textBaseline = 'middle';
+                GV.glow(c, sx, sy, fs * 2.2, col, 0.22);
+                c.shadowColor = col;
+                c.shadowBlur = fs * 0.5;
+                c.lineWidth = Math.max(1, fs / 14);
+                c.strokeStyle = U.hexA(col, 0.95);
+                c.strokeText(word, sx, sy);
+                c.shadowBlur = 0;
+                c.fillStyle = 'rgba(255,255,255,.12)';
+                c.fillText(word, sx, sy);
+                c.restore();
+                x += bw;
+            }
+            // тротуар: отражения витрин и вывесок
+            c.fillStyle = '#07050c';
+            c.fillRect(0, gnd, w, h - gnd);
+            GV.mirror(c, w, h, gnd, { a: 0.3, squash: 0.45, wob: w * 0.006, strip: 3, blur: Math.max(3, w / 220), r });
+            for (let y = gnd; y < h; y += 2 + r() * 4) {
+                c.fillStyle = `rgba(7,5,12,${0.15 + r() * 0.35})`;
+                c.fillRect(0, y, w, 1);
+            }
+            c.fillStyle = 'rgba(0,0,0,.35)';
+            c.fillRect(0, gnd, w, 2);
+            GV.vignette(c, w, h, 0.55);
+        }
+    },
+    drops: {
+        name: 'Круги на воде',
+        draw(c, w, h, r) {
+            GV.vgrad(c, w, h, [
+                [0, '#040a10'],
+                [1, '#0b1d24']
+            ]);
+            // дорожка луны на воде: короткие горизонтальные блики, книзу шире
+            c.save();
+            c.globalCompositeOperation = 'lighter';
+            c.save();
+            c.translate(w * 0.66, h * 0.08);
+            c.scale(2.4, 0.7);
+            GV.glow(c, 0, 0, h * 0.05, '#e6f0ff', 0.35);
+            c.restore();
+            for (let i = 0; i < 70; i++) {
+                const t = Math.pow(r(), 0.8),
+                    y = h * (0.1 + t * 0.85),
+                    x = w * 0.66 + Math.sin(y * 0.05) * w * 0.006 + (r() - 0.5) * w * (0.02 + t * 0.07),
+                    lw = w * (0.012 + r() * 0.03) * (0.5 + t);
+                c.fillStyle = `rgba(220,232,255,${0.08 + r() * 0.18})`;
+                c.beginPath();
+                c.ellipse(x, y, lw / 2, 1 + r() * 1.2, 0, 0, Math.PI * 2);
+                c.fill();
+            }
+            c.restore();
+            // круги: сплюснутые эллипсы, светлая дальняя дуга и тёмная ближняя
+            for (let i = 0; i < 26; i++) {
+                const x = r() * w,
+                    y = h * (0.08 + Math.pow(r(), 0.7) * 0.92),
+                    k = 0.15 + (y / h) * 0.25,
+                    R = w * (0.015 + r() * 0.06) * (0.25 + (y / h) * 1.2);
+                const rings = 3 + ((r() * 4) | 0);
+                for (let j = 1; j <= rings; j++) {
+                    const rr = (R * j) / rings,
+                        a = 0.7 * (1 - j / (rings + 1));
+                    c.lineWidth = Math.max(0.8, w / 1500);
+                    c.strokeStyle = `rgba(170,215,230,${a})`;
+                    c.beginPath();
+                    c.ellipse(x, y, rr, rr * k, 0, Math.PI, Math.PI * 2);
+                    c.stroke();
+                    c.strokeStyle = `rgba(0,0,0,${a * 0.9})`;
+                    c.beginPath();
+                    c.ellipse(x, y + 1, rr, rr * k, 0, 0, Math.PI);
+                    c.stroke();
+                }
+                if (r() < 0.4) GV.glow(c, x, y - R * k * 0.3, R * 0.15, '#cfeaf2', 0.5);
+            }
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    glassrain: {
+        name: 'Дождь на стекле',
+        draw(c, w, h, r) {
+            GV.vgrad(c, w, h, [
+                [0, '#07070b'],
+                [1, '#0d0a0c']
+            ]);
+            // размытый город за стеклом
+            GV.bokeh(c, w, h, r, 45, ['#ffb454', '#ff6a3d', '#7c9cff', '#fff1d0'], { y0: 0.35, rMin: w / 50, rMax: w / 14, a: 0.12 });
+            c.fillStyle = 'rgba(5,5,8,.25)';
+            c.fillRect(0, 0, w, h);
+            const drop = (x, y, s) => {
+                c.fillStyle = 'rgba(0,0,0,.28)';
+                c.beginPath();
+                c.ellipse(x + s * 0.15, y + s * 0.2, s * 0.85, s, 0, 0, Math.PI * 2);
+                c.fill();
+                const g = c.createRadialGradient(x, y + s * 0.3, 0, x, y, s);
+                g.addColorStop(0, 'rgba(255,210,160,.18)');
+                g.addColorStop(1, 'rgba(120,130,160,.06)');
+                c.fillStyle = g;
+                c.beginPath();
+                c.ellipse(x, y, s * 0.8, s * 0.95, 0, 0, Math.PI * 2);
+                c.fill();
+                c.fillStyle = 'rgba(255,255,255,.55)';
+                c.beginPath();
+                c.arc(x - s * 0.3, y - s * 0.35, Math.max(0.6, s * 0.18), 0, Math.PI * 2);
+                c.fill();
+            };
+            for (let i = 0; i < 520; i++) drop(r() * w, r() * h, 1 + Math.pow(r(), 4) * (w / 110));
+            // стекающие дорожки
+            for (let k = 0; k < 9; k++) {
+                let x = r() * w,
+                    y = r() * h * 0.5;
+                const end = y + h * (0.2 + r() * 0.5);
+                c.strokeStyle = 'rgba(200,210,230,.12)';
+                c.lineWidth = Math.max(1.5, w / 700);
+                c.beginPath();
+                c.moveTo(x, y);
+                while (y < end) {
+                    y += 6;
+                    x += (r() - 0.5) * 3;
+                    c.lineTo(x, y);
+                }
+                c.stroke();
+                drop(x, y, w / 160 + r() * (w / 200));
+            }
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    cosmos: {
+        name: 'Космос',
+        draw(c, w, h, r, pal, seed) {
+            c.fillStyle = '#020309';
+            c.fillRect(0, 0, w, h);
+            // туманность в два цвета
+            GV.cloudLayer(c, w, h, seed, '#2f86c0', { scale: 2.2, a: 0.9, cut: 0.15 });
+            c.globalCompositeOperation = 'lighter';
+            GV.cloudLayer(c, w, h, seed + 11, '#b0409e', { scale: 2.8, a: 0.8, cut: 0.2 });
+            GV.cloudLayer(c, w, h, seed + 5, '#ff9ec2', { scale: 4, a: 0.18, cut: 0.45 });
+            c.globalCompositeOperation = 'source-over';
+            GV.stars(c, w, h, r, 1400, 1, 0.6);
+            for (let i = 0; i < 14; i++) GV.glow(c, r() * w, r() * h * 0.7, 3 + r() * 6, '#ffffff', 0.7);
+            // край планеты с атмосферой
+            const px = w * 0.82,
+                py = h * 1.55,
+                R = h * 0.95;
+            GV.glow(c, px, py, R * 1.12, '#5fb8ff', 0.35);
+            const g = c.createRadialGradient(px - R * 0.5, py - R * 0.9, R * 0.1, px, py, R);
+            g.addColorStop(0, '#2a4b6e');
+            g.addColorStop(0.6, '#0b1726');
+            g.addColorStop(1, '#03060c');
+            c.fillStyle = g;
+            c.beginPath();
+            c.arc(px, py, R, 0, Math.PI * 2);
+            c.fill();
+            c.strokeStyle = 'rgba(140,210,255,.55)';
+            c.lineWidth = Math.max(1.5, h / 300);
+            c.beginPath();
+            c.arc(px, py, R, Math.PI * 1.08, Math.PI * 1.75);
+            c.stroke();
+            GV.vignette(c, w, h, 0.45);
+        }
+    },
+    // ---- небо и звёзды ----
+    aurorasea: {
+        name: 'Сияние над морем',
+        draw(c, w, h, r, pal, seed) {
+            const hz = Math.round(h * 0.6);
+            const cv = document.createElement('canvas');
+            cv.width = w;
+            cv.height = hz;
+            const k = cv.getContext('2d');
+            GENERATORS.aurora.draw(k, w, hz, rng(seed), ['#05030b', '#1d0b2b', '#b04bff', '#ff6ec7', '#7a5cff'], seed);
+            c.fillStyle = '#05030b';
+            c.fillRect(0, 0, w, h);
+            c.drawImage(cv, 0, 0);
+            // чистая линия горизонта и скалы по краям
+            c.fillStyle = '#05030b';
+            c.fillRect(0, hz - 2, w, h - hz + 2);
+            GV.mirror(c, w, h, hz - 2, { a: 0.42, squash: 0.85, wob: w * 0.01, strip: 2, r });
+            for (let y = hz; y < h; y += 2 + r() * 5) {
+                c.fillStyle = `rgba(5,3,11,${0.2 + r() * 0.35})`;
+                c.fillRect(0, y, w, 1 + r() * 1.5);
+            }
+            const rock = (x0, x1, top) => {
+                c.fillStyle = '#020105';
+                c.beginPath();
+                c.moveTo(x0, hz + h * 0.01);
+                let y = hz;
+                for (let x = x0; x <= x1; x += 8) {
+                    const t = (x - x0) / (x1 - x0);
+                    y = hz - top * Math.sin(t * Math.PI) * (0.75 + r() * 0.25);
+                    c.lineTo(x, y);
+                }
+                c.lineTo(x1, hz + h * 0.01);
+                c.fill();
+            };
+            rock(-w * 0.05, w * 0.22, h * 0.12);
+            rock(w * 0.8, w * 1.05, h * 0.08);
+            GV.vignette(c, w, h, 0.45);
+        }
+    },
+    milkyway: {
+        name: 'Млечный путь',
+        draw(c, w, h, r, pal, seed) {
+            GV.vgrad(c, w, h, [
+                [0, '#040408'],
+                [1, '#08070a']
+            ]);
+            // полоса галактики по диагонали
+            c.save();
+            c.translate(w / 2, h / 2);
+            c.rotate(-0.5);
+            const g = c.createLinearGradient(0, -h * 0.3, 0, h * 0.3);
+            g.addColorStop(0, 'rgba(0,0,0,0)');
+            g.addColorStop(0.5, 'rgba(255,215,170,.2)');
+            g.addColorStop(1, 'rgba(0,0,0,0)');
+            c.fillStyle = g;
+            c.fillRect(-w, -h * 0.3, w * 2, h * 0.6);
+            c.restore();
+            GV.cloudLayer(c, w, h, seed, '#e0a878', { scale: 4, a: 0.3, cut: 0.35 });
+            GV.glow(c, w * 0.55, h * 0.47, h * 0.35, '#ffcf96', 0.22);
+            GV.stars(c, w, h, r, 1800, 1, 0.6);
+            // гуще звёзды вдоль полосы
+            for (let i = 0; i < 1600; i++) {
+                const t = r() * 2 - 0.5,
+                    x = w * t,
+                    y = h * 0.5 - (x - w / 2) * Math.tan(0.5) + (r() - 0.5) * h * 0.25 * (r() + r());
+                c.fillStyle = `rgba(255,245,255,${0.2 + r() * 0.6})`;
+                c.fillRect(x, y, 1.1, 1.1);
+            }
+            GV.ridge(c, w, h, r, h * 0.94, h * 0.05, '#020205');
+        }
+    },
+    clouds: {
+        name: 'Над облаками',
+        draw(c, w, h, r, pal, seed) {
+            GV.vgrad(c, w, h, [
+                [0, '#0d1230'],
+                [0.45, '#4a3a7a'],
+                [0.62, '#ff9a6a'],
+                [0.7, '#ffd6a5'],
+                [1, '#2a2440']
+            ]);
+            GV.glow(c, w * 0.6, h * 0.66, h * 0.35, '#fff0c8', 0.6);
+            GV.cloudLayer(c, w, h, seed, '#3b3358', { scale: 2.2, y0: 0.62, a: 1, oct: 5 });
+            GV.cloudLayer(c, w, h, seed + 7, '#1c1830', { scale: 3, y0: 0.75, a: 1, oct: 4 });
+            GV.stars(c, w, h, r, 90, 0.3, 0.5);
+            GV.vignette(c, w, h, 0.4);
+        }
+    },
+    peaks: {
+        name: 'Звёзды над пиками',
+        draw(c, w, h, r) {
+            GV.vgrad(c, w, h, [
+                [0, '#02070a'],
+                [0.6, '#0d2a30'],
+                [0.75, '#1f4a52'],
+                [1, '#050b0d']
+            ]);
+            GV.stars(c, w, h, r, 500, 0.7, 0.6);
+            // луна
+            GV.glow(c, w * 0.72, h * 0.22, h * 0.3, '#cfeff0', 0.22);
+            c.fillStyle = '#e4f4f2';
+            c.beginPath();
+            c.arc(w * 0.72, h * 0.22, h * 0.045, 0, Math.PI * 2);
+            c.fill();
+            GV.ridge(c, w, h, r, h * 0.62, h * 0.25, '#16363c', 1.6);
+            GV.ridge(c, w, h, r, h * 0.74, h * 0.2, '#0b2025', 1.3);
+            GV.ridge(c, w, h, r, h * 0.86, h * 0.12, '#030a0c');
+        }
+    },
+    // ---- абстракция ----
+    ribbons: {
+        name: 'Красные волны',
+        draw(c, w, h, r) {
+            c.fillStyle = '#0a0406';
+            c.fillRect(0, 0, w, h);
+            c.globalCompositeOperation = 'lighter';
+            // три пучка шёлковых лент: в каждом нити чуть сдвинуты по фазе — получается объём
+            for (let gI = 0; gI < 3; gI++) {
+                const yc = h * (0.3 + gI * 0.2),
+                    ph = r() * 6,
+                    col = ['#e5484d', '#ff7a45', '#ff3b5c'][gI];
+                for (let i = 0; i < 40; i++) {
+                    const t = i / 40;
+                    c.strokeStyle = U.hexA(col, 0.05 + 0.12 * Math.sin(t * Math.PI));
+                    c.lineWidth = (1 + r() * 1.5) * (w / 1000);
+                    c.beginPath();
+                    for (let x = -20; x <= w + 20; x += 8) {
+                        const y = yc + Math.sin((x / w) * 4 + ph + t * 0.9) * h * (0.1 + t * 0.06) + Math.sin((x / w) * 9 + ph * 2) * h * 0.02;
+                        x < 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+                    }
+                    c.stroke();
+                }
+            }
+            c.globalCompositeOperation = 'source-over';
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    flowlines: {
+        name: 'Линии',
+        draw(c, w, h, r, pal, seed) {
+            c.fillStyle = '#09070a';
+            c.fillRect(0, 0, w, h);
+            const n = noise2(seed);
+            c.lineWidth = Math.max(0.8, w / 1600);
+            // линии по полю направлений шума
+            for (let i = 0; i < 520; i++) {
+                let x = r() * w,
+                    y = r() * h;
+                c.strokeStyle = U.hexA(r() < 0.7 ? '#ff3b3b' : '#ff9e7a', 0.08 + r() * 0.18);
+                c.beginPath();
+                c.moveTo(x, y);
+                for (let s = 0; s < 70; s++) {
+                    const ang = n((x / w) * 2.5, (y / h) * 2.5, 3) * Math.PI * 3;
+                    x += Math.cos(ang) * 5;
+                    y += Math.sin(ang) * 5;
+                    c.lineTo(x, y);
+                }
+                c.stroke();
+            }
+            GV.vignette(c, w, h, 0.5);
+        }
+    },
+    metal: {
+        name: 'Хром',
+        lowres: 0.4,
+        draw(c, w, h, r, pal, seed) {
+            const n = noise2(seed);
+            const img = c.createImageData(w, h);
+            // хромовая линейка: резкие переходы от чёрного к белому, как отражение неба и земли
+            const RAMP = [
+                [0, '#030406'],
+                [0.3, '#15181d'],
+                [0.44, '#5a636e'],
+                [0.48, '#a8b2be'],
+                [0.52, '#363c45'],
+                [0.6, '#07080b'],
+                [0.8, '#1f252d'],
+                [0.9, '#6e7884'],
+                [1, '#0e1014']
+            ];
+            const LUT = [];
+            for (let i = 0; i < 256; i++) LUT.push(GV.ramp(RAMP, i / 255));
+            for (let y = 0; y < h; y++)
+                for (let x = 0; x < w; x++) {
+                    const u = x / w,
+                        v = y / h;
+                    const q = n(u * 1.6 + 1.7, v * 1.6 + 9.2, 3);
+                    const t = n(u * 1.4 + q * 1.8, v * 1.4 + q * 1.8, 4);
+                    const s = (((t + 0.5) * 2.2 + v * 0.6) % 1 + 1) % 1;
+                    const col = LUT[(s * 255) | 0];
+                    const dark = 0.35 + 0.45 * Math.min(1, Math.hypot(u - 0.5, v - 0.5) * 1.6);
+                    const i = (y * w + x) * 4;
+                    img.data[i] = col[0] * dark;
+                    img.data[i + 1] = col[1] * dark;
+                    img.data[i + 2] = col[2] * dark;
+                    img.data[i + 3] = 255;
+                }
+            c.putImageData(img, 0, 0);
+            GV.vignette(c, w, h, 0.7);
+        }
+    },
+    // ---- машины ----
+    speed: {
+        name: 'На скорости',
+        draw(c, w, h, r) {
+            const gnd = h * 0.74;
+            GV.vgrad(c, w, h, [
+                [0, '#050506'],
+                [0.74, '#141216'],
+                [0.741, '#070607'],
+                [1, '#030303']
+            ]);
+            // смазанный фон: полосы огней
+            c.globalCompositeOperation = 'lighter';
+            for (let i = 0; i < 120; i++) {
+                const y = h * (0.15 + r() * 0.6),
+                    x = r() * w * 1.2 - w * 0.1,
+                    len = w * (0.15 + r() * 0.6),
+                    col = r() < 0.6 ? '#ff2a2a' : r() < 0.5 ? '#ffffff' : '#ffb020';
+                const g = c.createLinearGradient(x, 0, x + len, 0);
+                g.addColorStop(0, U.hexA(col, 0));
+                g.addColorStop(0.5, U.hexA(col, 0.06 + r() * 0.2));
+                g.addColorStop(1, U.hexA(col, 0));
+                c.fillStyle = g;
+                c.fillRect(x, y, len, 1 + r() * 2.5);
+            }
+            c.globalCompositeOperation = 'source-over';
+            GV.car(c, w * 0.18, gnd, w * 0.64, r, { rim: '#ff3b3b', blur: true });
+            GV.mirror(c, w, h, gnd, { a: 0.25, squash: 0.6, r });
+            GV.vignette(c, w, h, 0.55);
+        }
+    },
+    garage: {
+        name: 'Гараж',
+        draw(c, w, h, r, pal, seed) {
+            const gnd = h * 0.76;
+            GV.vgrad(c, w, h, [
+                [0, '#0b0a0a'],
+                [0.76, '#171412'],
+                [0.761, '#0a0908'],
+                [1, '#050404']
+            ]);
+            // кирпичная стена
+            c.fillStyle = 'rgba(0,0,0,.35)';
+            for (let y = 0; y < gnd; y += h * 0.03) {
+                c.fillRect(0, y, w, 1);
+                const off = ((y / (h * 0.03)) | 0) % 2 ? w * 0.03 : 0;
+                for (let x = off; x < w; x += w * 0.06) c.fillRect(x, y, 1, h * 0.03);
+            }
+            // ворота: рулонная штора, поднятая до половины
+            const dx0 = w * 0.25,
+                dx1 = w * 0.75,
+                dtop = h * 0.2,
+                open = h * 0.55;
+            c.fillStyle = '#050404';
+            c.fillRect(dx0 - w * 0.015, dtop - h * 0.02, dx1 - dx0 + w * 0.03, gnd - dtop + h * 0.02);
+            // свет изнутри
+            const ig = c.createLinearGradient(0, open, 0, gnd);
+            ig.addColorStop(0, '#4a4136');
+            ig.addColorStop(1, '#221d17');
+            c.fillStyle = ig;
+            c.fillRect(dx0, open, dx1 - dx0, gnd - open);
+            // машина внутри: низ переда и фары
+            c.fillStyle = '#0a0909';
+            const cx = w * 0.5,
+                cw = (dx1 - dx0) * 0.62;
+            c.beginPath();
+            c.moveTo(cx - cw / 2, gnd);
+            c.lineTo(cx - cw / 2, open + (gnd - open) * 0.25);
+            c.quadraticCurveTo(cx, open + (gnd - open) * 0.05, cx + cw / 2, open + (gnd - open) * 0.25);
+            c.lineTo(cx + cw / 2, gnd);
+            c.fill();
+            c.fillStyle = '#1a1817';
+            c.fillRect(cx - cw * 0.18, open + (gnd - open) * 0.55, cw * 0.36, (gnd - open) * 0.18);
+            c.globalCompositeOperation = 'lighter';
+            [-1, 1].forEach(s => {
+                const hx = cx + s * cw * 0.36,
+                    hy = open + (gnd - open) * 0.42;
+                GV.glow(c, hx, hy, h * 0.06, '#eaf2ff', 0.7);
+                c.fillStyle = 'rgba(255,255,255,.9)';
+                c.fillRect(hx - cw * 0.06, hy - 2, cw * 0.12, 3);
+            });
+            c.globalCompositeOperation = 'source-over';
+            // ламели шторы
+            for (let y = dtop; y < open; y += h * 0.016) {
+                const g = c.createLinearGradient(0, y, 0, y + h * 0.016);
+                g.addColorStop(0, '#3a3633');
+                g.addColorStop(0.6, '#24211f');
+                g.addColorStop(1, '#0e0d0c');
+                c.fillStyle = g;
+                c.fillRect(dx0, y, dx1 - dx0, h * 0.016);
+            }
+            // лампа над воротами
+            c.fillStyle = '#e8f0ff';
+            c.fillRect(w * 0.42, dtop - h * 0.06, w * 0.16, h * 0.008);
+            c.globalCompositeOperation = 'lighter';
+            GV.glow(c, w * 0.5, dtop - h * 0.056, w * 0.14, '#dfe8ff', 0.2);
+            // свет на мокрый пол
+            const fg = c.createLinearGradient(0, gnd, 0, h);
+            fg.addColorStop(0, 'rgba(230,200,150,.16)');
+            fg.addColorStop(1, 'rgba(230,200,150,0)');
+            c.fillStyle = fg;
+            c.beginPath();
+            c.moveTo(dx0, gnd);
+            c.lineTo(dx1, gnd);
+            c.lineTo(dx1 + w * 0.2, h);
+            c.lineTo(dx0 - w * 0.2, h);
+            c.fill();
+            c.globalCompositeOperation = 'source-over';
+            GV.mirror(c, w, h, gnd, { a: 0.2, squash: 0.5, wob: w * 0.004, r });
+            GV.vignette(c, w, h, 0.6);
+        }
+    },
+    taillights: {
+        name: 'RS6',
+        draw(c, w, h, r) {
+            const gnd = h * 0.8,
+                cx = w * 0.5,
+                W = Math.min(w * 0.62, h * 1.25);
+            GV.vgrad(c, w, h, [
+                [0, '#050406'],
+                [0.8, '#120d0f'],
+                [0.801, '#060405'],
+                [1, '#030203']
+            ]);
+            GV.bokeh(c, w, h, r, 18, ['#ffb454', '#8b8f9a'], { y0: 0.3, y1: 0.6, rMin: w / 80, rMax: w / 35, a: 0.08 });
+            const X = t => cx + (t * W) / 2;
+            const Y = v => gnd - v * W;
+            // кузов сзади: широкий низ, покатая крыша универсала
+            c.fillStyle = '#0b0a0c';
+            c.beginPath();
+            c.moveTo(X(-1), Y(0.04));
+            c.lineTo(X(-1.02), Y(0.2));
+            c.quadraticCurveTo(X(-1), Y(0.27), X(-0.86), Y(0.29));
+            c.lineTo(X(-0.7), Y(0.43));
+            c.quadraticCurveTo(X(0), Y(0.47), X(0.7), Y(0.43));
+            c.lineTo(X(0.86), Y(0.29));
+            c.quadraticCurveTo(X(1), Y(0.27), X(1.02), Y(0.2));
+            c.lineTo(X(1), Y(0.04));
+            c.fill();
+            // заднее стекло
+            const gl = c.createLinearGradient(0, Y(0.42), 0, Y(0.3));
+            gl.addColorStop(0, '#1d1a22');
+            gl.addColorStop(1, '#09080b');
+            c.fillStyle = gl;
+            c.beginPath();
+            c.moveTo(X(-0.64), Y(0.41));
+            c.quadraticCurveTo(X(0), Y(0.445), X(0.64), Y(0.41));
+            c.lineTo(X(0.76), Y(0.305));
+            c.lineTo(X(-0.76), Y(0.305));
+            c.fill();
+            // блик по линии плеч
+            c.strokeStyle = 'rgba(200,205,215,.25)';
+            c.lineWidth = Math.max(1, W / 600);
+            c.beginPath();
+            c.moveTo(X(-0.95), Y(0.275));
+            c.quadraticCurveTo(X(0), Y(0.29), X(0.95), Y(0.275));
+            c.stroke();
+            // колёса
+            c.fillStyle = '#020202';
+            c.fillRect(X(-0.98), Y(0.06), W * 0.14, W * 0.07);
+            c.fillRect(X(0.84), Y(0.06), W * 0.14, W * 0.07);
+            // диффузор и овальные патрубки
+            c.fillStyle = '#060506';
+            c.fillRect(X(-0.7), Y(0.09), W * 0.7, W * 0.05);
+            [-0.55, 0.55].forEach(t => {
+                c.strokeStyle = 'rgba(200,205,215,.6)';
+                c.lineWidth = Math.max(1.5, W / 350);
+                c.beginPath();
+                c.ellipse(X(t), Y(0.065), W * 0.045, W * 0.018, 0, 0, Math.PI * 2);
+                c.stroke();
+            });
+            // фонари: два блока и сплошная полоса между ними
+            c.globalCompositeOperation = 'lighter';
+            const ly = Y(0.235),
+                lh = W * 0.022;
+            GV.glow(c, cx, ly, W * 0.6, '#ff1f2d', 0.18);
+            [-1, 1].forEach(s => {
+                c.fillStyle = 'rgba(255,40,50,.85)';
+                c.beginPath();
+                c.moveTo(X(s * 0.97), ly - lh);
+                c.lineTo(X(s * 0.62), ly - lh * 0.7);
+                c.lineTo(X(s * 0.62), ly + lh * 0.6);
+                c.lineTo(X(s * 0.94), ly + lh);
+                c.fill();
+                GV.glow(c, X(s * 0.8), ly, W * 0.16, '#ff2a35', 0.5);
+            });
+            c.fillStyle = 'rgba(255,60,70,.95)';
+            c.fillRect(X(-0.62), ly - lh * 0.2, W * 0.62, Math.max(2, lh * 0.35));
+            GV.glow(c, cx, ly, W * 0.3, '#ff3040', 0.25);
+            c.fillStyle = 'rgba(255,255,255,.75)';
+            c.fillRect(X(-0.12), Y(0.14), W * 0.12, W * 0.004);
+            c.globalCompositeOperation = 'source-over';
+            GV.mirror(c, w, h, gnd, { a: 0.4, squash: 0.7, wob: w * 0.012, strip: 3, r });
+            GV.rain(c, w, h, r, 700, 0.09, 22);
+            GV.vignette(c, w, h, 0.55);
+        }
+    },
+    // ---- простые ----
+    simple: {
+        name: 'Simple',
+        draw(c, w, h, r, pal, seed) {
+            // один ровный цвет — без рисунка и эффектов (seed: 1 графит, 2 полночь, 3 тёплый)
+            const col = { 1: '#15161b', 2: '#0f1422', 3: '#1a1512', 4: '#121a16' }[seed] || '#15161b';
+            c.fillStyle = col;
+            c.fillRect(0, 0, w, h);
+        }
+    }
+});
+
+// живой серпантин: фон рисуется один раз, по полосам едут машины — вверх задние огни, навстречу фары.
+// Иногда на участке дороги пробка: машины тормозят, загораются стоп-сигналы, очередь растёт и рассасывается
+class LiveRoad {
+    constructor(cv, seed) {
+        this.cv = cv;
+        this.seed = seed;
+        this.r = rng(seed * 31 + 7);
+        this.cars = [];
+        this.jam = null;
+        this.nextJam = 8 + this.r() * 12;
+        this.t = 0;
+        this.last = 0;
+        this.spawn = [0, 0];
+        this.sprites = { red: this.sprite('#ff2a2a'), brake: this.sprite('#ff5a4a'), white: this.sprite('#fff1d6') };
+        this.resize = U.debounce(() => this.fit(), 150);
+        addEventListener('resize', this.resize);
+        this.fit();
+        // дорога сразу с машинами, а не пустая
+        for (let i = 0; i < 400; i++) this.step(1 / 15);
+        this.frame = this.frame.bind(this);
+        this.raf = requestAnimationFrame(this.frame);
+    }
+    sprite(col) {
+        const s = document.createElement('canvas');
+        s.width = s.height = 32;
+        const c = s.getContext('2d');
+        const g = c.createRadialGradient(16, 16, 0, 16, 16, 16);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.15, U.hexA(col, 1));
+        g.addColorStop(0.45, U.hexA(col, 0.35));
+        g.addColorStop(1, U.hexA(col, 0));
+        c.fillStyle = g;
+        c.fillRect(0, 0, 32, 32);
+        return s;
+    }
+    fit() {
+        if (!this.cv) return;
+        const k = Perf.light() ? 0.6 : 1;
+        const w = Math.round(innerWidth * k),
+            h = Math.round(innerHeight * k);
+        this.cv.width = w;
+        this.cv.height = h;
+        this.ctx = this.cv.getContext('2d');
+        this.bg = document.createElement('canvas');
+        this.bg.width = w;
+        this.bg.height = h;
+        this.P = GENERATORS.serpentine.draw(this.bg.getContext('2d'), w, h, rng(this.seed), PALETTES[this.seed % PALETTES.length], this.seed, { bare: true });
+        this.draw();
+    }
+    // lane 0 — от зрителя вверх (t растёт), lane 1 — навстречу
+    step(dt) {
+        const r = this.r;
+        this.t += dt;
+        // пробка: появляется на случайном участке одной полосы, держится 10–20 с
+        if (!this.jam && this.t > this.nextJam) this.jam = { lane: r() < 0.6 ? 0 : 1, at: 0.25 + r() * 0.45, end: this.t + 10 + r() * 10 };
+        if (this.jam && this.t > this.jam.end) {
+            this.jam = null;
+            this.nextJam = this.t + 15 + r() * 25;
+        }
+        for (let lane = 0; lane < 2; lane++) {
+            const list = this.cars.filter(c => c.lane === lane).sort((a, b) => (lane ? a.t - b.t : b.t - a.t));
+            list.forEach((car, i) => {
+                const dir = lane ? -1 : 1;
+                let want = car.v;
+                if (this.jam && this.jam.lane === lane) {
+                    const d = (this.jam.at - car.t) * dir;
+                    if (d > -0.02 && d < 0.05) want = car.v * 0.04;
+                }
+                const lead = list[i - 1];
+                if (lead) {
+                    const gap = (lead.t - car.t) * dir;
+                    if (gap < 0.014) want = 0;
+                    else if (gap < 0.04) want = Math.min(want, lead.s * 0.95 + (gap - 0.014) * 0.6);
+                }
+                // разгон мягкий, торможение резче
+                car.s += (want - car.s) * Math.min(1, dt * (want < car.s ? 4 : 0.8));
+                car.brake = want < car.s * 0.8 || car.s < car.v * 0.3;
+                car.t += car.s * dt * dir;
+            });
+            // новая машина въезжает, если у края дороги свободно
+            this.spawn[lane] -= dt;
+            const edge = lane ? 0.97 : 0;
+            const near = list.length && Math.abs(list[list.length - 1].t - edge) < 0.03;
+            if (this.spawn[lane] <= 0 && !near) {
+                const v = 0.035 + r() * 0.03;
+                this.cars.push({ lane, t: edge, v, s: v, brake: false });
+                this.spawn[lane] = 0.6 + r() * 2.2;
+            }
+        }
+        this.cars = this.cars.filter(c => c.t >= -0.02 && c.t <= 0.98);
+    }
+    draw() {
+        const c = this.ctx,
+            P = this.P;
+        if (!c || !P) return;
+        c.globalCompositeOperation = 'source-over';
+        c.drawImage(this.bg, 0, 0);
+        c.globalCompositeOperation = 'lighter';
+        this.cars.forEach(car => {
+            const [x, y, rw] = P(car.t);
+            const off = car.lane ? -0.2 : 0.2,
+                cx = x + rw * off,
+                sep = rw * 0.07,
+                sz = Math.max(3, rw * (car.lane ? 0.07 : car.brake ? 0.075 : 0.055));
+            // дальний свет фар немного растекается по асфальту
+            const spr = car.lane ? this.sprites.white : car.brake ? this.sprites.brake : this.sprites.red;
+            c.globalAlpha = Math.min(1, 0.35 + rw / 120);
+            c.drawImage(spr, cx - sep - sz / 2, y - sz / 2, sz, sz);
+            c.drawImage(spr, cx + sep - sz / 2, y - sz / 2, sz, sz);
+            if (car.lane) {
+                c.globalAlpha = 0.12;
+                c.drawImage(spr, cx - sz * 1.5, y - sz * 0.4, sz * 3, sz * 1.6);
+            }
+        });
+        c.globalAlpha = 1;
+        c.globalCompositeOperation = 'source-over';
+    }
+    frame(now) {
+        if (!this.cv) return;
+        this.raf = requestAnimationFrame(this.frame);
+        if (document.hidden || now - this.last < 1000 / 30 - 2) return;
+        const dt = this.last ? Math.min(0.1, (now - this.last) / 1000) : 0;
+        this.last = now;
+        const sp = Settings.get().theme.liveSpeed;
+        if (sp === 0) return;
+        this.step(dt * (sp || 1));
+        this.draw();
+    }
+    stop() {
+        cancelAnimationFrame(this.raf);
         removeEventListener('resize', this.resize);
         this.cv = null;
     }
@@ -8591,58 +10420,98 @@ const THEME_CATS = [
     ['neon', 'Неон и дождь', 'cloud'],
     ['sky', 'Небо и звёзды', 'star'],
     ['abstract', 'Абстракция', 'palette'],
-    ['cars', 'Машины', 'bolt']
+    ['cars', 'Машины', 'bolt'],
+    ['simple', 'Простые', 'check']
 ];
 const ph = (cat, name, id, author, accent, accent2, fx, extra) =>
     Object.assign({ cat, name, photo: id, author, accent, accent2, fx }, extra || {});
+// живой фон-видео с Mixkit: ролик 720p (браузер кэширует его на год), превью — кадр из ролика
+const MIXKIT = (id, q = 720) => ({
+    mp4: `https://assets.mixkit.co/videos/${id}/${id}-${q}.mp4`,
+    poster: `https://assets.mixkit.co/videos/${id}/${id}-thumb-${q}-0.jpg`
+});
+const vd = (cat, name, id, accent, accent2, extra) =>
+    Object.assign({ cat, name, video: id, accent, accent2, fx: 'none', dim: 0.35 }, extra || {});
 const gn = (cat, name, gen, seed, accent, accent2, fx, extra) =>
     Object.assign({ cat, name, gen, seed, accent, accent2, fx }, extra || {});
 const THEME_PRESETS = [
-    gn('storm', 'Чёрная гроза', 'thunder', 77, '#8fa8ff', '#d6deff', 'lightning', {
-        dim: 0.15,
-        tod: 'night',
-        star: true
-    }),
-    ph('storm', 'Гроза над городом', 'Qava0gzXYSo', 'Christian Lue', '#9db4ff', '#ffd27a', 'lightning', { dim: 0.35 }),
-    ph('storm', 'Разряд', 'v501xq7qPaI', 'Unsplash', '#a970ff', '#3aa0ff', 'lightning', { dim: 0.3 }),
-    ph('storm', 'Шторм', '3wnG56iHn2g', 'Slava Auchynnikau', '#7c9cff', '#c7d2ff', 'storm', { dim: 0.35 }),
-    ph('storm', 'Молнии над полем', '2Qv41Ccof1Q', 'Unsplash', '#b388ff', '#8fa8ff', 'lightning', { dim: 0.35 }),
+    // фото Unsplash без входа больше не отдаются (401): темы — живые видео Mixkit (бесплатная лицензия) и рисунки кодом.
+    // was — id прежнего фото: у кого была выбрана фото-тема, она сама переключится на свою замену
+    gn('storm', 'Чёрная гроза', 'thunder', 77, '#8fa8ff', '#d6deff', 'lightning', { dim: 0.15, tod: 'night', star: true }),
+    vd('storm', 'Гроза в горах', 4422, '#c9a6ff', '#ffb454', { was: 'Qava0gzXYSo' }),
+    vd('storm', 'Молнии в тучах', 29354, '#8fa8ff', '#d6deff', { was: '3wnG56iHn2g' }),
+    vd('storm', 'Буря над хребтом', 4423, '#9db4ff', '#ffb454'),
+    gn('storm', 'Разряд', 'plasma', 3102, '#6fd0ff', '#b58cff', 'lightning', { dim: 0.2, was: 'v501xq7qPaI' }),
+    gn('storm', 'Молния над полем', 'fieldstorm', 3104, '#c9b8ff', '#8fa8ff', 'lightning', { dim: 0.2, was: '2Qv41Ccof1Q' }),
 
     gn('city', 'Black Russia', 'nightroad', 1902, '#e5484d', '#ff7a45', 'rain'),
-    ph('city', 'Москва-Сити', 'iheEOFTXRPM', 'Nikita Karimov', '#3aa0ff', '#a970ff', 'none'),
-    ph('city', 'Ночная Москва', '6zUdG9TbSfY', 'Aleksandr Popov', '#4fa3ff', '#14b8a6', 'snow'),
-    ph('city', 'Москва с высоты', 'bwmkM2AR9tA', 'Platon Matakaev', '#ffb454', '#ff6a3d', 'none'),
-    ph('city', 'Огни трассы', 'Gqx9V1Vsr3M', 'Maxim Tolchinskiy', '#ff4d4d', '#ffb020', 'none'),
-    ph('city', 'Мокрый асфальт', 'F-iQE69s2ac', 'Margo Evardson', '#ff5a5a', '#7c7cff', 'rain'),
-    ph('city', 'Серпантин', 'sMnbkGmCuNw', 'Unsplash', '#ffa94d', '#e5484d', 'none'),
+    gn('city', 'Серпантин', 'serpentine', 3206, '#ffa94d', '#e5484d', 'none', { was: 'sMnbkGmCuNw', live: true }),
+    vd('city', 'Небоскрёбы', 49845, '#5ab0ff', '#ffb454', { was: 'iheEOFTXRPM' }),
+    vd('city', 'Проспект с высоты', 49846, '#ff7a45', '#ffd27a', { was: 'bwmkM2AR9tA' }),
+    vd('city', 'Развязка ночью', 11, '#ffb454', '#ff4d4d', { was: 'Gqx9V1Vsr3M' }),
+    vd('city', 'Кольцо', 50998, '#ffd27a', '#e5484d'),
+    vd('city', 'Ночной Токио', 28687, '#ff4d4d', '#ffd27a', { was: '6zUdG9TbSfY' }),
+    vd('city', 'Токийская башня', 20061, '#ff7a45', '#ffd27a'),
+    vd('city', 'Ночной залив', 4455, '#7cc4ff', '#ffd27a'),
+    vd('city', 'Улица в огнях', 20077, '#ffb454', '#7cc4ff', { was: 'F-iQE69s2ac' }),
 
-    ph('neon', 'Токио под дождём', 'uZA3P4sA3tM', 'masahiro miyagi', '#ff4fa3', '#3ad1ff', 'rain'),
-    ph('neon', 'Осака', 'G0KVzxBb2xo', 'Cuvii', '#ff6b6b', '#ffd166', 'rain'),
-    ph('neon', 'Неоновая улица', 'GZIk-Sq9PGg', 'Nicolas Caetano', '#c56bff', '#3aa0ff', 'rain'),
-    ph('neon', 'Дождь на стекле', 'Imvn4PWHPcQ', 'freestocks', '#ffb454', '#ff6a3d', 'rain'),
-    ph('neon', 'Капли в темноте', 'Q8gsXy6C2g0', 'Edouard TAMBA', '#7c9cff', '#ff9ec2', 'rain'),
+    vd('neon', 'Дождливая ночь', 4331, '#c56bff', '#3ad1ff', { was: 'uZA3P4sA3tM' }),
+    vd('neon', 'Дождь на стекле', 2846, '#ffb454', '#ff4d4d', { dim: 0.45, was: 'Imvn4PWHPcQ' }),
+    vd('neon', 'Таймс-сквер в дождь', 4332, '#ff4d4d', '#3ad1ff'),
+    vd('neon', 'Неоновые вывески', 4447, '#ff4fa3', '#3ad1ff', { was: 'GZIk-Sq9PGg' }),
+    vd('neon', 'Отель', 41154, '#ff6a3d', '#3ad1ff'),
+    vd('neon', 'Ночной переулок', 4451, '#ffb454', '#ff6a3d', { dim: 0.45, was: 'G0KVzxBb2xo' }),
+    vd('neon', 'Капли на асфальте', 27704, '#9db4ff', '#ffd27a', { was: 'Q8gsXy6C2g0' }),
+    vd('neon', 'Красный неон', 35644, '#ff2d55', '#ff7a90'),
+    vd('neon', 'Неоновый тоннель', 35327, '#d04bff', '#3ad1ff'),
 
-    ph('sky', 'Северное сияние', 'B-vjWtZLC9g', 'Unsplash', '#2fe0a0', '#7c7cff', 'snow'),
-    ph('sky', 'Сияние над морем', 'bFkZVRP0VlQ', 'Unsplash', '#3ddc97', '#a970ff', 'none'),
-    ph('sky', 'Млечный путь', 'UeRIcbTthwE', 'Filip Kvasnak', '#8fb6ff', '#c58af9', 'fireflies'),
-    ph('sky', 'Над облаками', 'uj-w-v7OFT4', 'Chan Hoi', '#9db4ff', '#ffd6a5', 'none'),
-    ph('sky', 'Звёзды над пиками', 'qNXhVgRfU0E', 'Venti Views', '#7c9cff', '#ffb454', 'none'),
-    gn('sky', 'Космос', 'stars', 1005, '#5fa8d3', '#c58af9', 'snow'),
+    vd('sky', 'Сияние над озером', 4037, '#3ddc97', '#a3ff6b', { was: 'B-vjWtZLC9g' }),
+    vd('sky', 'Сияние в лесу', 4034, '#b6ff5c', '#3ddc97'),
+    vd('sky', 'Бирюзовое сияние', 4038, '#3ddcc4', '#7cf3ff', { dim: 0.45, was: 'bFkZVRP0VlQ' }),
+    vd('sky', 'Сияние в горах', 4039, '#9be86b', '#c58af9'),
+    vd('sky', 'Млечный путь над горами', 4148, '#8fb6ff', '#ffb48a', { was: 'UeRIcbTthwE' }),
+    vd('sky', 'Звёздный дождь', 14468, '#c58af9', '#ffb48a'),
+    vd('sky', 'Галактика', 1610, '#d6deff', '#8fb6ff'),
+    vd('sky', 'Туманность', 30889, '#ffd6a5', '#7cc4ff'),
+    vd('sky', 'Луна', 4433, '#d6deff', '#ffd6a5'),
+    vd('sky', 'Звёзды над озером', 1704, '#7cc4ff', '#ffd6a5', { was: 'uj-w-v7OFT4' }),
+    gn('sky', 'Луна над пиками', 'peaks', 3405, '#7fd6d0', '#cfeff0', 'none', { was: 'qNXhVgRfU0E' }),
+    gn('sky', 'Млечный путь', 'milkyway', 3403, '#ffcf96', '#8fb6ff', 'fireflies'),
+    gn('sky', 'Космос', 'cosmos', 1005, '#5fa8d3', '#c58af9', 'none'),
 
     gn('abstract', 'Рельеф', 'relief', 2000, '#ff4d6d', '#5b7bd6', 'none', { star: true }),
     gn('abstract', 'Рельеф: изумруд', 'relief', 2002, '#2ec4b6', '#cbf3f0', 'none'),
     gn('abstract', 'Рельеф: фиолет', 'relief', 2003, '#9d7bff', '#ffe1ff', 'none'),
     gn('abstract', 'Рельеф: закат', 'relief', 2004, '#ff7a2f', '#ffd29d', 'none'),
-    ph('abstract', 'Красные волны', 'GycPY2LU2Ew', 'Pawel Czerwinski', '#e5484d', '#ff7a45', 'none'),
-    ph('abstract', 'Линии', 'dFcotJdXzXw', 'Pawel Czerwinski', '#ff3b3b', '#ff9e7a', 'none'),
-    ph('abstract', 'Жидкий металл', 'kCOWXaq56ho', 'Al Amin Mir', '#ff2d55', '#ff8a5b', 'none'),
+    vd('abstract', 'Дымка', 50956, '#b8c6d6', '#8b8f9a'),
+    vd('abstract', 'Тёмный дым', 1965, '#9aa6b4', '#5ab0ff'),
+    gn('abstract', 'Красные волны', 'ribbons', 3501, '#e5484d', '#ff7a45', 'none', { was: 'GycPY2LU2Ew' }),
+    gn('abstract', 'Линии', 'flowlines', 3502, '#ff3b3b', '#ff9e7a', 'none', { was: 'dFcotJdXzXw' }),
+    gn('abstract', 'Хром', 'metal', 3503, '#c8d2de', '#7c8a9c', 'none', { was: 'kCOWXaq56ho' }),
     gn('abstract', 'Фиолетовый дым', 'smoke', 1003, '#9d7bff', '#ff8fd0', 'none'),
     gn('abstract', 'Синтвейв', 'synth', 1001, '#ff3864', '#ffb86b', 'none'),
 
-    ph('cars', 'Неон и металл', '2QIQhVB4sOE', 'noir', '#ff3b8d', '#3ad1ff', 'none'),
-    ph('cars', 'Гараж', '0eGRcXpR2_g', 'Komorebi Photo', '#ffb454', '#e5484d', 'none'),
-    ph('cars', 'RS6', 'krETJVsnWeA', 'serjan midili', '#e5484d', '#8b8f9a', 'rain')
+    vd('cars', 'Огни трассы', 4067, '#ff4d4d', '#ffd27a'),
+    vd('cars', 'Ночная поездка', 42039, '#ffb454', '#ff4d4d', { was: '0eGRcXpR2_g' }),
+    vd('cars', 'Тоннель', 2026, '#ffd27a', '#ff7a45'),
+    vd('cars', 'Ночное шоссе', 34562, '#c8cdd6', '#ff4d4d'),
+    gn('cars', 'На скорости', 'speed', 3601, '#ff3b3b', '#c8cdd6', 'none', { was: '2QIQhVB4sOE' }),
+    gn('cars', 'RS6', 'taillights', 3603, '#e5484d', '#8b8f9a', 'rain', { was: 'krETJVsnWeA' }),
+
+    // ровный цвет без рисунка и эффектов
+    gn('simple', 'Simple', 'simple', 1, '#d0d3da', '#8b8f9a', 'none', { dim: 0 }),
+    gn('simple', 'Simple: синий', 'simple', 2, '#3aa0ff', '#7c7cff', 'none', { dim: 0 }),
+    gn('simple', 'Simple: тёплый', 'simple', 3, '#ffb454', '#e5484d', 'none', { dim: 0 }),
+    gn('simple', 'Simple: хвоя', 'simple', 4, '#2fbf71', '#14b8a6', 'none', { dim: 0 })
 ];
+// выбранная раньше фото-тема Unsplash (больше не грузится) → её рисованная замена
+function migrateUnsplashWall() {
+    const w = Settings.get().theme.wall;
+    const m = w && w.kind === 'url' && String(w.url || '').match(/unsplash\.com\/photos\/([\w-]+)/);
+    if (!m) return;
+    const p = THEME_PRESETS.find(x => x.was === m[1]);
+    Settings.patch(x => (x.theme.wall = p ? (p.video ? { kind: 'video', id: p.video } : { kind: 'gen', gen: p.gen, seed: p.seed }) : { kind: 'gen', gen: (w.fb && w.fb.gen) || 'nightroad', seed: (w.fb && w.fb.seed) || 1902 }));
+}
 const ACCENTS = [
     '#e5484d',
     '#ff7a45',
@@ -9357,6 +11226,7 @@ const SettingsUI = {
 
     /* Готовые темы */
     themeSrc(p, w = wallW()) {
+        if (p.video) return MIXKIT(p.video, w > 640 ? 720 : 360).poster;
         return p.photo ? UNSPLASH(p.photo, w) : p.url || null;
     },
     applyPreset(p) {
@@ -9367,9 +11237,11 @@ const SettingsUI = {
             x.colors.accent2 = p.accent2 || '';
             const src = this.themeSrc(p);
             const [fg, fs] = CAT_FALLBACK[p.cat] || CAT_FALLBACK.dev;
-            x.theme.wall = src
-                ? { kind: 'url', url: src, fb: { gen: fg, seed: fs } }
-                : { kind: 'gen', gen: p.gen, seed: p.seed };
+            x.theme.wall = p.video
+                ? { kind: 'video', id: p.video, fb: { gen: fg, seed: fs } }
+                : src
+                  ? { kind: 'url', url: src, fb: { gen: fg, seed: fs } }
+                  : { kind: 'gen', gen: p.gen, seed: p.seed };
             x.theme.fx.effect = p.fx || 'none';
             // что тема не задаёт, возвращаем к умолчаниям, иначе тянется от прошлой темы
             x.theme.dim = p.dim !== undefined ? p.dim : DEFAULT_SETTINGS.theme.dim;
@@ -9448,14 +11320,16 @@ const SettingsUI = {
                 const on =
                     s.theme.enabled &&
                     s.accent === p.accent &&
-                    (src
-                        ? w.kind === 'url' && noW(w.url) === noW(src)
-                        : w.kind === 'gen' && w.gen === p.gen && w.seed === p.seed);
+                    (p.video
+                        ? w.kind === 'video' && w.id === p.video
+                        : src
+                          ? w.kind === 'url' && noW(w.url) === noW(src)
+                          : w.kind === 'gen' && w.gen === p.gen && w.seed === p.seed);
                 const fxName = p.fx && p.fx !== 'none' ? FX_EFFECTS[p.fx].name : '';
                 const card =
-                    U.h(`<div class="wall ${on ? 'on' : ''}" role="button" style="--c:${p.accent}" title="${p.author ? `Фото: ${U.esc(p.author)} / Unsplash` : 'Генеративный фон VERDICT'}">
+                    U.h(`<div class="wall ${on ? 'on' : ''}" role="button" style="--c:${p.accent}" title="${p.author ? `Фото: ${U.esc(p.author)} / Unsplash` : p.video ? 'Видео: Mixkit' : 'Генеративный фон VERDICT'}">
                     ${p.star ? '<span class="tagc" style="background:var(--acc);color:#fff">★ ТОП</span>' : fxName ? `<span class="tagc">${icon(FX_EFFECTS[p.fx].icon, 10).replace('class="vi"', 'class="vi" style="display:inline;vertical-align:-1px"')} ${fxName}</span>` : ''}
-                    <div class="nm"><span class="dotc"></span><span class="dotc" style="--c:${p.accent2 || p.accent};margin-left:-10px"></span><span>${p.name}</span>${p.photo ? '<span class="muted">фото</span>' : ''}</div></div>`);
+                    <div class="nm"><span class="dotc"></span><span class="dotc" style="--c:${p.accent2 || p.accent};margin-left:-10px"></span><span>${p.name}</span>${p.photo ? '<span class="muted">фото</span>' : p.video || p.live ? '<span class="muted">живой</span>' : ''}</div></div>`);
                 // молния живая, на превью рисуем застывшую
                 const bolt = /lightning|storm/.test(p.fx || '') ? `url(${Fx.stillBolt(400, 225, p.seed || 7)}), ` : '';
                 if (src) {
@@ -11606,7 +13480,7 @@ const Updater = {
                 })
             );
         return (async () => {
-            const v = (await get('verdict.meta.js')) || (await get('verdict.user.js', { headers: { Range: 'bytes=0-1499' } }));
+            const v = (await fastVersion(`${BRAND.update}/verdict.meta.js`)).v || (await get('verdict.user.js', { headers: { Range: 'bytes=0-1499' } }));
             // не опускаем версию ниже разосланной: raw GitHub может отставать на несколько минут
             if (v && !this.newer(Store.get('updLatest', '0.0.0'), v)) Store.set('updLatest', v);
             return v;
@@ -13388,25 +15262,39 @@ const Bridge = {
     }
 };
 
+// версия из шапки .meta.js: два запроса сразу — через кэш GitHub (отвечает мгновенно, но может отставать на минуты)
+// и в обход кэша (свежий, но иногда думает по 10+ секунд). Берём свежий, если он успел за 2,5 с, иначе — что есть
+function fastVersion(url) {
+    const one = u =>
+        new Promise(res => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: u,
+                timeout: 9000,
+                onload: r => {
+                    const m = r.status === 200 && /@version\s+([\d.]+)/.exec(String(r.responseText || '').slice(0, 4000));
+                    res(m ? { v: m[1] } : { status: r.status });
+                },
+                onerror: () => res({}),
+                ontimeout: () => res({ timeout: true })
+            });
+        });
+    const fresh = one(url + '?t=' + Date.now()),
+        cached = one(url);
+    return new Promise(res => {
+        let done = false;
+        const fin = v => !done && ((done = true), res(v));
+        fresh.then(r => (r.v ? fin(r) : cached.then(c => fin(c.v ? c : r))));
+        setTimeout(() => cached.then(c => c.v && fin(c)), 2500);
+    });
+}
+
 // обновления «VERDICT Логи»: версия из опубликованной шапки скрипта
 const LogsUpdate = {
     BASE: 'https://raw.githubusercontent.com/Jeredpoi/BRr-Logs/main/',
     check() {
-        return new Promise(res => {
-            if (typeof GM_xmlhttpRequest !== 'function') return res({ err: 'нет связи' });
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: this.BASE + 'verdict-logs.meta.js?t=' + Date.now(),
-                timeout: 15000,
-                onload: r => {
-                    const m = r.status === 200 && /@version\s+([\d.]+)/.exec(r.responseText || '');
-                    if (m) return res({ v: m[1] });
-                    res({ err: r.status === 404 ? 'репозиторий закрыт или файла нет' : 'ответ ' + r.status });
-                },
-                onerror: () => res({ err: 'нет связи' }),
-                ontimeout: () => res({ err: 'долго не отвечает' })
-            });
-        });
+        if (typeof GM_xmlhttpRequest !== 'function') return Promise.resolve({ err: 'нет связи' });
+        return fastVersion(this.BASE + 'verdict-logs.meta.js').then(r => (r.v ? r : { err: r.status === 404 ? 'репозиторий закрыт или файла нет' : r.status ? 'ответ ' + r.status : r.timeout ? 'долго не отвечает' : 'нет связи' }));
     },
     install() {
         window.open(this.BASE + 'verdict-logs.user.js?t=' + Date.now(), '_blank', 'noopener');
@@ -13437,6 +15325,15 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.42',
+        [
+            'Темы: живые фоны-видео — гроза в горах, ночные города сверху, неон и дождь, северное сияние, звёзды, ночные трассы. Пока ролик грузится, виден его кадр',
+            '«Серпантин» ожил: по дороге едут машины, иногда собирается пробка',
+            'Рисованные фоны переделаны, у каждой темы свой; новая категория «Простые» — ровный цвет без рисунка',
+            'Проверка обновлений VERDICT Логи и форума больше не висит по 10 секунд'
+        ]
+    ],
     [
         '1.11.41',
         [
@@ -14073,7 +15970,10 @@ const Theme = {
                     w.kind === 'photo' &&
                     Store.get('photos', []).find(p => p.id === w.id && p.scene);
                 // на сайте логов — без анимации: под большой таблицей она тормозит прокрутку
+                const vid = s.theme.rotate === 'off' && w.kind === 'video' && w.id;
                 if (scene && !Fx.reduced() && !IS_LOGS) this.setScene(scene);
+                else if (vid && !Fx.reduced() && !IS_LOGS) this.setVideo(vid);
+                else if (G && G.road && !Fx.reduced() && !IS_LOGS) this.setRoad(w.seed);
                 else if (G && G.live && !Fx.reduced() && !IS_LOGS) this.setLive(w.seed);
                 // фон рисуется после первой отрисовки страницы: генерация (~200 мс при первом заходе) не задерживает форум
                 else
@@ -14118,6 +16018,63 @@ const Theme = {
         this._tok = (this._tok || 0) + 1;
         Photo.wall(null);
         this.swap(layer, new LiveWall(cv, seed));
+    },
+
+    // живое видео: пока ролик грузится, виден его кадр; не загрузился — запасной рисованный фон
+    setVideo(id) {
+        const q = Perf.light() ? 360 : 720,
+            m = MIXKIT(id, q);
+        const layer = document.createElement('div');
+        layer.className = 'vd-wl';
+        layer.style.backgroundImage = `url("${m.poster}")`;
+        const v = document.createElement('video');
+        v.muted = true;
+        v.loop = true;
+        v.autoplay = true;
+        v.playsInline = true;
+        v.setAttribute('muted', '');
+        v.setAttribute('playsinline', '');
+        v.preload = 'auto';
+        v.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .8s';
+        v.oncanplay = () => {
+            v.style.opacity = '1';
+            v.play().catch(() => {});
+        };
+        v.onerror = () => {
+            if (!layer.isConnected) return;
+            const fb = Settings.get().theme.wall.fb || { gen: 'nightroad', seed: 1902 };
+            v.remove();
+            layer.style.backgroundImage = `url(${Wallpaper.render(fb.gen, fb.seed)})`;
+        };
+        v.src = m.mp4;
+        layer.appendChild(v);
+        this.wall.appendChild(layer);
+        this._tok = (this._tok || 0) + 1;
+        Photo.wall(null);
+        // во фоновой вкладке ролик стоит — не тратит батарею
+        const vis = () => (document.hidden ? v.pause() : v.play().catch(() => {}));
+        document.addEventListener('visibilitychange', vis);
+        this.swap(layer, {
+            stop() {
+                document.removeEventListener('visibilitychange', vis);
+                v.pause();
+                v.removeAttribute('src');
+                v.load();
+            }
+        });
+    },
+
+    // серпантин с машинами: дорога нарисована один раз, по ней едут фары
+    setRoad(seed) {
+        const layer = document.createElement('div');
+        layer.className = 'vd-wl';
+        const cv = document.createElement('canvas');
+        cv.style.cssText = 'width:100%;height:100%;display:block';
+        layer.appendChild(cv);
+        this.wall.appendChild(layer);
+        this._tok = (this._tok || 0) + 1;
+        Photo.wall(null);
+        this.swap(layer, new LiveRoad(cv, seed));
     },
 
     // своё фото с анимацией поверх
@@ -14329,6 +16286,7 @@ function boot() {
             Store.set('ownTailsStrict', true);
         }
     });
+    safe(migrateUnsplashWall);
     safe(() => Theme.apply());
     U.ready(() => {
         safe(() => Theme.apply());
