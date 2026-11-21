@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.58
+// @version      1.11.59
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.58', // подставляет build.sh из @version
+    version: '1.11.59', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -9214,6 +9214,14 @@ class ReplyBar {
         host.className = 'vd-bar-host';
         (anchor ? anchor.parentNode : this.form).insertBefore(host, anchor || this.form.firstChild);
         this.host = host;
+        // на телефоне редактор форума появляется позже панели и встаёт над ней — переносим панель обратно над редактор
+        const keepAbove = () => {
+            const box = this.form.querySelector('.fr-box');
+            if (box && host.isConnected && host.nextElementSibling !== box) box.parentNode.insertBefore(host, box);
+        };
+        const mo = new MutationObserver(keepAbove);
+        mo.observe(this.form, { childList: true, subtree: true });
+        setTimeout(() => (mo.disconnect(), keepAbove()), 15000);
         this.shadow = host.attachShadow({ mode: 'open' });
         this.shadow.innerHTML = `${uiStyles(this.shadow)}<div class="v-root"></div>`;
         this.root = this.shadow.querySelector('.v-root');
@@ -16095,6 +16103,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.59',
+        ['Телефон: панель VERDICT снова над полем ответа, а не под ним — редактор форума на телефоне появляется позже, и скрипт теперь сам переставляет панель']
+    ],
     [
         '1.11.58',
         ['Телефон: закреплённые разделы встают в строку «Модер.» (она у форума и так закреплена) и больше не перекрывают её; у кого этой строки нет — своя полоса в самом верху, которая не уезжает при прокрутке']
