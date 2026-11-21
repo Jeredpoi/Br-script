@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.53
+// @version      1.11.54
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.53', // подставляет build.sh из @version
+    version: '1.11.54', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -1510,6 +1510,27 @@ const DEFAULT_PACKS = [
         ]
     },
     {
+        id: 'unpun',
+        name: 'Снятие наказаний (агенты поддержки)',
+        match: 'сняти\\S*\\s+наказани|снять\\s+наказани',
+        only: true,
+        kind: 'app',
+        items: [
+            it('approve', 'Наказание снято', 'Ваше наказание снято. Баллы за снятие будут списаны согласно таблице.', { key: 'снято' }),
+            it('deny', 'Не прошло время', 'С момента получения наказания прошло недостаточно времени. Подайте заявку повторно, когда пройдёт минимальный срок.', { key: 'рано' }),
+            it('deny', 'Недостаточно баллов', 'На вашем счёте недостаточно баллов для снятия наказания.', { key: 'мало' }),
+            it(
+                'deny',
+                'Строгий выговор — через задание',
+                'Строгий выговор снимается только через задание от Главного Следящего или его Заместителя. Для получения задания обратитесь в личные сообщения КАП/ЗКАП.',
+                { key: 'строг' }
+            ),
+            it('deny', 'Наказание не найдено', 'Указанное наказание не найдено. Проверьте вид, дату и время получения наказания.', { key: 'нет' }),
+            it('deny', 'Не по форме', 'Заявка составлена не по форме. Форма — в первом сообщении темы.', { key: 'форма', hint: 'form' }),
+            it('deny', 'Повторная заявка', 'Заявка на снятие этого наказания уже была рассмотрена ранее.', { key: 'повтор' })
+        ]
+    },
+    {
         id: 'appeals',
         name: 'Обжалования',
         match: 'обжалов',
@@ -2116,7 +2137,7 @@ const Usage = {
 const DIRECTIONS = {
     admin: { name: 'Администрации', packs: ['common', 'players', 'admins', 'appeals'] },
     orgs: { name: 'Организаций', packs: ['common', 'leaders', 'staff', 'reports', 'apps', 'players'] },
-    ap: { name: 'АП', packs: ['common', 'agents', 'points', 'apps'], hint: 'агенты поддержки' },
+    ap: { name: 'АП', packs: ['common', 'agents', 'points', 'unpun', 'apps'], hint: 'агенты поддержки' },
     forum: { name: 'ЗГКФ', packs: ['common', 'players', 'bio', 'rps', 'org', 'apps'], hint: 'форум' }
 };
 
@@ -3836,19 +3857,15 @@ const Points = {
         return { cls, txt, title: `${what}${warn}` };
     },
     async mark() {
+        if (Unpun.isThread()) return Unpun.mark();
         if (!this.isThread() || !this.visible()) return;
         const prices = await this.prices();
         if (!prices.length) return;
-        if (!document.getElementById('vd-pts-css')) {
-            const st = document.createElement('style');
-            st.id = 'vd-pts-css';
-            st.textContent = `.vd-pts { display: inline-flex; align-items: center; gap: 5px; margin: 0 8px; padding: 2px 9px; border-radius: 999px; font: 600 11.5px/1.5 system-ui, sans-serif; white-space: nowrap; cursor: help; }
-.vd-pts.ok { color: #7ee2a8; background: rgba(47,191,113,.14); border: 1px solid rgba(47,191,113,.4); }
-.vd-pts.no { color: #ff9b9e; background: rgba(229,72,77,.14); border: 1px solid rgba(229,72,77,.45); }
-.vd-pts.unk { color: #c9cdd6; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); }
-@media (max-width: 650px) { .vd-pts { white-space: normal; margin: 4px 0 0; } }`;
-            document.head.appendChild(st);
-        }
+        this.css();
+        this.each(own => this.badge(this.parseApp(Page.postText(own), prices)));
+    },
+    // пометка справа в шапке каждого сообщения, кроме первого; цитаты чужих заявок не считаются
+    each(fn) {
         const firstId = (() => {
             const f = Page.firstPost();
             const m = f && f.closest('.message');
@@ -3859,10 +3876,9 @@ const Points = {
             if (msg.querySelector('.vd-pts')) return;
             const body = msg.querySelector('.message-body .bbWrapper');
             if (!body) return;
-            // цитата чужой заявки в ответе модератора — не заявка
             const own = body.cloneNode(true);
             own.querySelectorAll('.bbCodeBlock--quote, blockquote').forEach(q => q.remove());
-            const b = this.badge(this.parseApp(Page.postText(own), prices));
+            const b = fn(own, msg);
             if (!b) return;
             const el = document.createElement('span');
             el.className = 'vd-pts ' + b.cls;
@@ -3875,6 +3891,109 @@ const Points = {
                 spot.prepend(li);
             } else if (spot) spot.prepend(el);
             else body.before(el);
+        });
+    },
+    css() {
+        if (!document.getElementById('vd-pts-css')) {
+            const st = document.createElement('style');
+            st.id = 'vd-pts-css';
+            st.textContent = `.vd-pts { display: inline-flex; align-items: center; gap: 5px; margin: 0 8px; padding: 2px 9px; border-radius: 999px; font: 600 11.5px/1.5 system-ui, sans-serif; white-space: nowrap; cursor: help; }
+.vd-pts.ok { color: #7ee2a8; background: rgba(47,191,113,.14); border: 1px solid rgba(47,191,113,.4); }
+.vd-pts.no { color: #ff9b9e; background: rgba(229,72,77,.14); border: 1px solid rgba(229,72,77,.45); }
+.vd-pts.unk { color: #c9cdd6; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); }
+@media (max-width: 650px) { .vd-pts { white-space: normal; margin: 4px 0 0; } }`;
+            document.head.appendChild(st);
+        }
+    }
+};
+
+// снятие наказаний агентам поддержки: правила (сколько ждать и сколько баллов) — из темы по ссылке в первом сообщении,
+// в каждой заявке — можно ли уже снимать
+const UNPUN_DEFAULT = [
+    { k: 'warn', name: 'Предупреждение', re: /предупрежд/i, days: 1, cost: 25 },
+    { k: 'rep', name: 'Выговор', re: /выговор/i, days: 2, cost: 35 },
+    { k: 'strict', name: 'Строгий выговор', re: /строг\S*\s+выговор/i, task: true }
+];
+const Unpun = {
+    isThread() {
+        if (!Page.isThread() || !/сняти\S*\s+наказани|снять\s+наказани/i.test(`${Page.title()} ${Page.section()}`)) return false;
+        const p = DEFAULT_PACKS.find(x => x.id === 'unpun');
+        return !!p && Access.packVisible(p);
+    },
+    // правила из текста: «Для снятия предупреждения: … Минимальное время … - 1 день. … Стоимость …: 25 баллов»
+    parseRules(text) {
+        const out = UNPUN_DEFAULT.map(r => Object.assign({}, r));
+        const blocks = String(text).split(/для\s+сняти\S*\s+/i).slice(1);
+        blocks.forEach(b => {
+            const head = b.slice(0, 40);
+            const r = /строг/i.test(head) ? out[2] : /выговор/i.test(head) ? out[1] : /предупрежд/i.test(head) ? out[0] : null;
+            if (!r) return;
+            const d = b.match(/минимальн\S*\s+врем\S*[^\d\n]{0,40}(\d+)\s*(д|ч)/i);
+            if (d) (r.days = d[2].toLowerCase() === 'ч' ? Number(d[1]) / 24 : Number(d[1])), (r.task = false);
+            const c = b.match(/стоимост\S*[^\d\n]{0,40}(\d+)\s*бал/i);
+            if (c) (r.cost = Number(c[1])), (r.task = false);
+            if (/задани/i.test(b) && !d && !c) r.task = true;
+        });
+        return out;
+    },
+    async rules() {
+        const base = Page.threadBase();
+        const key = 'unpun:' + base;
+        const c = Store.get(key, null);
+        if (c && Date.now() - c.at < 6 * 3600e3) return c.list;
+        let list = UNPUN_DEFAULT;
+        try {
+            // первое сообщение темы: ссылка «кликабельно» ведёт в тему с правилами
+            let first = Page.firstPost();
+            if (!first) {
+                const r = await fetch(base, { credentials: 'include' });
+                first = new DOMParser().parseFromString(await r.text(), 'text/html').querySelector('.message-body .bbWrapper');
+            }
+            const a = first && [...first.querySelectorAll('a[href*="/threads/"]')].find(x => !x.href.includes(base));
+            if (a) {
+                const r = await fetch(a.href, { credentials: 'include' });
+                const body = new DOMParser().parseFromString(await r.text(), 'text/html').querySelector('.message-body .bbWrapper');
+                if (body) list = this.parseRules(Page.postText(body));
+            }
+        } catch {
+            /* нет связи — правила по умолчанию */
+        }
+        Store.set(key, { at: Date.now(), list: list.map(r => Object.assign({}, r, { re: undefined })) });
+        return list;
+    },
+    // дата и время наказания из заявки → мс (время МСК)
+    when(text) {
+        const d = text.match(/дата[^\n\d]{0,40}(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/i);
+        if (!d) return null;
+        const t = text.match(/время[^\n\d]{0,40}(\d{1,2})[:.](\d{2})/i);
+        const y = d[3].length === 2 ? 2000 + Number(d[3]) : Number(d[3]);
+        return Date.UTC(y, Number(d[2]) - 1, Number(d[1]), t ? Number(t[1]) : 0, t ? Number(t[2]) : 0) - 3 * 3600e3;
+    },
+    check(text, posted, rules) {
+        const kindLine = (text.match(/вид[^\n:]*[:—–-]?\s*([^\n]*)/i) || [])[1] || text;
+        const R = k => rules.find(r => r.k === k);
+        const r = /строг/i.test(kindLine) ? R('strict') : /выговор/i.test(kindLine) ? R('rep') : /предупрежд|варн|пред\b/i.test(kindLine) ? R('warn') : null;
+        if (!r) return { cls: 'unk', txt: 'Вид наказания не понятен', title: `«${kindLine.trim().slice(0, 60)}»` };
+        if (r.task) return { cls: 'no', txt: `${r.name} — только через задание КАП/ЗКАП`, title: 'Снимается строго через задание от Главного Следящего или его Заместителя' };
+        const at = this.when(text);
+        const cost = r.cost ? ` · ${r.cost} баллов` : '';
+        if (at == null) return { cls: 'unk', txt: `${r.name}${cost} · дата не указана`, title: `Снимать можно через ${r.days} дн. после получения` };
+        const days = (posted - at) / 864e5;
+        const shown = days < 0 ? 0 : Math.floor(days * 10) / 10;
+        if (days >= r.days)
+            return { cls: 'ok', txt: `Можно снять: прошло ${shown} дн. из ${r.days}${cost}`, title: `${r.name}: получено ${new Date(at + 3 * 3600e3).toISOString().slice(0, 16).replace('T', ' ')} МСК, заявка подана через ${shown} дн.` };
+        return { cls: 'no', txt: `Рано: прошло ${shown} дн., нужно ${r.days}${cost}`, title: `${r.name}: снимать можно не раньше чем через ${r.days} дн. после получения` };
+    },
+    async mark() {
+        const rules = await this.rules();
+        Points.css();
+        Points.each((own, msg) => {
+            const text = Page.postText(own);
+            // заявка по форме: есть «вид … наказания»
+            if (!/вид[^\n]{0,30}наказани|снимаем/i.test(text)) return null;
+            const tm = msg.querySelector('.message-attribution time[datetime], time[data-time]');
+            const posted = tm ? (tm.dataset.time ? Number(tm.dataset.time) * 1000 : Date.parse(tm.getAttribute('datetime'))) : Date.now();
+            return this.check(text, posted, rules.map(r => Object.assign({}, r, { re: undefined })));
         });
     }
 };
@@ -9038,7 +9157,7 @@ class ReplyBar {
         const here = Packs.detect(Page.section() + ' ' + Page.title());
         const found = here.length ? here : Packs.detect(Page.crumbs() + ' ' + Page.title());
         // тема одного вида (обменник баллов в разделе агентов поддержки) — только её набор, без соседних по разделу
-        const only = found.filter(p => (p.only || p.id === 'points') && Packs.detect(Page.title()).includes(p));
+        const only = found.filter(p => (p.only || p.id === 'points' || p.id === 'unpun') && Packs.detect(Page.title()).includes(p));
         return only.length ? only : found;
     }
     packs() {
@@ -15963,6 +16082,13 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.54',
+        [
+            'Снятие наказаний (для АП): правила — сколько ждать и сколько баллов — скрипт берёт из темы по ссылке в первом сообщении, и в каждой заявке справа пишет «Можно снять: прошло 2 дн. из 1 · 25 баллов», «Рано: прошло 0.9 дн., нужно 2» или «Строгий выговор — только через задание КАП/ЗКАП»',
+            'Отдельный шаблон ответов «Снятие наказаний»: «Наказание снято» и отказы — не прошло время, недостаточно баллов, строгий выговор через задание, наказание не найдено, не по форме, повторная заявка'
+        ]
+    ],
     [
         '1.11.53',
         ['Обменник баллов: в теме обменника — только его ответы, без набора «Жалобы на агентов поддержки» из того же раздела']
