@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.50
+// @version      1.11.51
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.50', // подставляет build.sh из @version
+    version: '1.11.51', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10352,8 +10352,9 @@ const QNav = {
     // где стоит панель: главное меню, верхняя панель модератора или строка под меню
     PLACES: { top: 'Закреплённая панель сверху', nav: 'В главном меню', sub: 'В строке под меню' },
     // закреплённая сверху: у модераторов — их верхняя панель, у остальных — своя такая же
-    pin(on) {
-        const staff = document.querySelector('.p-staffBar');
+    pin(on, own = false) {
+        // на телефоне панель модератора форума свёрнута — всегда своя полоса
+        const staff = own ? null : document.querySelector('.p-staffBar');
         document.documentElement.classList.toggle('vd-toppin', on);
         if (staff) staff.classList.toggle('vd-pinned', on);
         let tb = document.getElementById('vd-topbar');
@@ -10378,10 +10379,11 @@ const QNav = {
     },
     spot(place) {
         if (place === 'staff') place = 'top';
-        // верхняя полоса на телефоне скрыта — без панели персонала ставим в навигацию
-        if (place === 'top' && innerWidth <= 650 && !document.querySelector('.p-staffBar')) place = 'nav';
+        // телефон: меню форума свёрнуто в «гамбургер» — ссылки всегда отдельной полосой вверху страницы
+        const phone = innerWidth <= 650;
+        if (phone) place = 'top';
         if (place === 'top') {
-            const host = this.pin(true);
+            const host = this.pin(true, phone);
             if (host) return { place, host };
         } else this.pin(false);
         if (place === 'sub') {
@@ -10615,6 +10617,21 @@ const QNav = {
     }
 };
 addEventListener('scroll', () => QNav.close(), { passive: true });
+// повернули телефон или сузили окно через границу 650 px — переставляем панель
+{
+    let wasPhone = innerWidth <= 650;
+    addEventListener(
+        'resize',
+        U.debounce(() => {
+            const phone = innerWidth <= 650;
+            if (phone === wasPhone) return;
+            wasPhone = phone;
+            const bar = document.getElementById('vd-qnav');
+            if (bar) bar.remove();
+            QNav.mount();
+        }, 250)
+    );
+}
 
 // всплывающее меню над выделенным текстом в поле с BBCode: цвет, жирный, курсив, размер
 const BB_COLORS = [
@@ -15915,6 +15932,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.51',
+        ['Телефон: быстрая навигация снова работает — закреплённые разделы отдельной полосой в самом верху страницы, листаются пальцем, группы открываются касанием']
+    ],
+    [
         '1.11.50',
         [
             'Обменник баллов (для АП): скрипт сам читает цены из первого сообщения темы и в каждой заявке справа пишет «Хватает: нужно 350, есть 450» или «Не хватает 400». Наведи — видно, что посчитано',
@@ -16463,7 +16484,6 @@ const BASE_CSS = `
   background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); transition: background .15s; }
 .vd-qn-arr:hover { background: color-mix(in srgb, var(--vd-acc, #e5484d) 40%, transparent); }
 .vd-qn-arr[hidden] { display: none; }
-@media (max-width: 650px) { #vd-qnav { display: none; } }
 /* в верхней панели модератора и в строке под меню кнопки компактнее */
 #vd-qnav.vd-qnav--top, #vd-qnav.vd-qnav--sub { margin-left: 10px; padding: 0 0 0 12px; border-left: 1px solid rgba(255,255,255,.12); align-self: stretch; }
 .vd-qnav--top .vd-qn, .vd-qnav--sub .vd-qn { height: 24px; padding: 0 9px; border-radius: 7px; font-size: 11.5px; gap: 5px; }
@@ -16478,7 +16498,16 @@ const BASE_CSS = `
 #vd-topbar #vd-qnav { margin-left: 0; padding-left: 0; border-left: 0; }
 /* липкое меню форума встаёт под закреплённую панель */
 @media (min-width: 651px) { html.vd-toppin .p-navSticky, html.vd-toppin .uix_stickyBar { top: var(--vd-top-h, 38px) !important; } }
-@media (max-width: 650px) { #vd-topbar { display: none; } }
+/* телефон: своя полоса закреплённых ссылок вверху страницы — листается пальцем, без стрелок и без «липкости»
+   (у форума на телефоне своя липкая шапка) */
+@media (max-width: 650px) {
+  #vd-topbar { position: relative; height: 44px; }
+  #vd-topbar .vd-topbar-inner { padding: 0 8px; }
+  #vd-topbar #vd-qnav { padding: 0; }
+  #vd-qnav .vd-qn-arr { display: none !important; }
+  #vd-qnav .vd-qn-track { -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
+  #vd-qnav .vd-qn { height: 32px; scroll-snap-align: start; }
+}
 .vd-qn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 9px; font: 600 12.5px/1 inherit; color: #d6d8de !important; text-decoration: none !important; white-space: nowrap; cursor: pointer;
   background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); transition: background .15s, border-color .15s, color .15s; }
 .vd-qn:hover, .vd-qn.open { color: #fff !important; background: color-mix(in srgb, var(--vd-acc, #e5484d) 18%, transparent); border-color: color-mix(in srgb, var(--vd-acc, #e5484d) 45%, transparent); }
