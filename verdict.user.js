@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.55
+// @version      1.11.56
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.55', // подставляет build.sh из @version
+    version: '1.11.56', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -3962,22 +3962,31 @@ const Unpun = {
         return list;
     },
     // дата и время наказания из заявки → мс (время МСК)
+    // дата и время наказания из заявки → мс (время МСК); { bad: 'как написано' }, если дату не разобрать
     when(text) {
-        const d = text.match(/дата[^\n\d]{0,40}(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/i);
-        if (!d) return null;
-        const t = text.match(/время[^\n\d]{0,40}(\d{1,2})[:.](\d{2})/i);
-        const y = d[3].length === 2 ? 2000 + Number(d[3]) : Number(d[3]);
-        return Date.UTC(y, Number(d[2]) - 1, Number(d[1]), t ? Number(t[1]) : 0, t ? Number(t[2]) : 0) - 3 * 3600e3;
+        const line = (text.match(/дата[^\n\d]{0,40}([^\n]*)/i) || [])[1];
+        if (!line || !/\d/.test(line)) return null;
+        // «19.11.2026», «19.11.26», «19.11», «1911.2026» (без точки между днём и месяцем)
+        const d = line.match(/(?:^|\D)(\d{2})(\d{2})[./\-](\d{4}|\d{2})(?!\d)/) || line.match(/(\d{1,2})[./\-\s](\d{1,2})(?:[./\-\s](\d{4}|\d{2})(?!\d))?/);
+        const day = d && Number(d[1]),
+            mon = d && Number(d[2]);
+        if (!d || day < 1 || day > 31 || mon < 1 || mon > 12) return { bad: line.trim().slice(0, 20) };
+        const y = !d[3] ? new Date().getFullYear() : d[3].length === 2 ? 2000 + Number(d[3]) : Number(d[3]);
+        // время: подпись пункта бывает разорвана переносом («Время получения наказ\nания: 6:43»)
+        const t = text.match(/время[^\d]{0,60}?(\d{1,2})[:.](\d{2})/i);
+        return Date.UTC(y, mon - 1, day, t ? Number(t[1]) : 0, t ? Number(t[2]) : 0) - 3 * 3600e3;
     },
     check(text, posted, rules) {
         const kindLine = (text.match(/вид[^\n:]*[:—–-]?\s*([^\n]*)/i) || [])[1] || text;
         const R = k => rules.find(r => r.k === k);
-        const r = /строг/i.test(kindLine) ? R('strict') : /выговор/i.test(kindLine) ? R('rep') : /предупрежд|варн|пред\b/i.test(kindLine) ? R('warn') : null;
+        // с опечатками: «преупреждение», «выгавор», «пред», «варн»
+        const r = /стр[оа]г/i.test(kindLine) ? R('strict') : /в[ыи]г[оа]в[оа]р/i.test(kindLine) ? R('rep') : /пр[еи]д?у?пр[еи]ж?д|пр[еи]дупр|упрежд|варн|warn|(?:^|[^а-яё])пред(?![а-яё])/i.test(kindLine) ? R('warn') : null;
         if (!r) return { cls: 'unk', txt: 'Вид наказания не понятен', title: `«${kindLine.trim().slice(0, 60)}»` };
         if (r.task) return { cls: 'no', txt: `${r.name} — только через задание КАП/ЗКАП`, title: 'Снимается строго через задание от Главного Следящего или его Заместителя' };
         const at = this.when(text);
         const cost = r.cost ? ` · ${r.cost} баллов` : '';
         if (at == null) return { cls: 'unk', txt: `${r.name}${cost} · дата не указана`, title: `Снимать можно через ${r.days} дн. после получения` };
+        if (at.bad) return { cls: 'unk', txt: `${r.name}${cost} · дата с ошибкой: «${at.bad}»`, title: `Снимать можно через ${r.days} дн. после получения — проверь дату у агента` };
         const days = (posted - at) / 864e5;
         const shown = days < 0 ? 0 : Math.floor(days * 10) / 10;
         if (days >= r.days)
@@ -16082,6 +16091,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.56',
+        ['Снятие наказаний: понимает опечатки в виде наказания («преупреждение», «выгавор», «пред»), даты «19.11», «19.11.26», «1911.2026» и время, если подпись пункта разорвана переносом. Если дату не разобрать — пометка «дата с ошибкой» с тем, как написано']
+    ],
     [
         '1.11.55',
         ['Должности: у куратора появилось направление «АП» — КАП видит ответы и пометки агентов поддержки (обменник баллов, снятие наказаний), как следящие и ЗКАП; ЗГА и выше видят всё']
