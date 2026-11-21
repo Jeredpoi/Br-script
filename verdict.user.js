@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.51
+// @version      1.11.52
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.51', // подставляет build.sh из @version
+    version: '1.11.52', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -3708,12 +3708,12 @@ const Points = {
         return w.length > 5 ? w.slice(0, w.length - 2) : w.length > 3 ? w.slice(0, w.length - 1) : w;
     },
     words(s) {
-        return (String(s).toLowerCase().match(/[a-zа-яё0-9]{2,}/gi) || []).filter(w => !/^(балл\S*|шт|за|на|из|до|от|по|или|для)$/i.test(w)).map(w => this.stem(w));
+        return (String(s).toLowerCase().match(/[a-zа-яё0-9]{2,}/gi) || []).filter(w => !/^(бал+\S*|шт|за|на|из|до|от|по|или|для|все|всего|любой|любого)$/i.test(w)).map(w => this.stem(w));
     },
     // прайс из текста первого сообщения: «Название — 150 баллов», «150 баллов — Название», «Название: 150 б.»
     parsePrices(text) {
         const out = [];
-        const UNIT = '(?:балл\\S*|б\\.?|бал\\.?|points?|pts)';
+        const UNIT = '(?:бал+\\S*|б\\.?|points?|pts)';
         String(text)
             .split('\n')
             .map(l => l.replace(/[•●▪►✅✔️⭐*]+/g, ' ').replace(/\s+/g, ' ').trim())
@@ -3729,7 +3729,7 @@ const Points = {
                 if (!name || !(price > 0) || price > 1e7) return;
                 name = name.replace(/[«»"]/g, '').replace(/\s*[-—–:=|]+\s*$/, '').trim();
                 // строки-правила и итоги — не товары
-                if (/итого|всего|баланс|у\s+вас|минимал|максимал|правил|срок/i.test(name) || this.words(name).length === 0) return;
+                if (/^(?:итого|всего)|баланс|у\s+вас|минимал|максимал|правил|срок/i.test(name) || this.words(name).length === 0) return;
                 out.push({ name, price, w: this.words(name) });
             });
         return out;
@@ -3741,30 +3741,37 @@ const Points = {
         const first = Page.firstPost();
         if (first) {
             const list = this.parsePrices(Page.postText(first));
-            if (list.length) Store.set('pts:' + base, { at: Date.now(), list });
+            if (list.length) Store.set('pts2:' + base, { at: Date.now(), list });
             return list;
         }
-        const c = Store.get('pts:' + base, null);
+        const c = Store.get('pts2:' + base, null);
         if (c && Date.now() - c.at < 6 * 3600e3) return c.list;
         try {
             const r = await fetch(base, { credentials: 'include' });
             const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
             const body = doc.querySelector('.message--post .message-body .bbWrapper, .message-body .bbWrapper');
             const list = body ? this.parsePrices(Page.postText(body)) : [];
-            Store.set('pts:' + base, { at: Date.now(), list });
+            Store.set('pts2:' + base, { at: Date.now(), list });
             return list;
         } catch {
             return c ? c.list : [];
         }
     },
-    // заявка: сколько баллов у агента и что он берёт
+    // слова совпадают, если одно — начало другого: «баннера» и «баннер», «предупреждений» и «предупреждению»
+    same(a, b) {
+        if (a === b) return true;
+        const n = Math.min(a.length, b.length);
+        return n >= 4 && (a.startsWith(b.slice(0, n)) || b.startsWith(a.slice(0, n)));
+    },
+    // заявка: сколько баллов у агента и что он берёт (по форме «2. Ваше кол-во баллов: / 3. На что хотите обменять баллы:»)
     parseApp(text, prices) {
         const t = String(text);
-        // баланс: «Баллы: 450», «Количество баллов: 450», «У меня 450 баллов», «Баланс — 450»
+        const NUM = '(\\d{1,3}(?:[ \\u00a0]\\d{3})+|\\d+)';
+        // баланс — только из своей строки (иначе «85» и «3.» со следующей склеиваются в «853»); «балов» тоже бывает
         const balRe = [
-            /(?:баланс|кол-?во\s+балл\S*|количество\s+балл\S*|накоплен\S*|имеющ\S*\s+балл\S*|мои\s+балл\S*|балл\S*\s+(?:на\s+(?:счету|счёте|балансе)|сейчас|всего|в\s+наличии))[^\d\n]{0,25}(\d[\d\s]{0,8})/i,
-            /(?:у\s+меня|имею|имеется|накопил\S*|на\s+(?:счету|счёте|балансе))[^\d\n]{0,20}(\d[\d\s]{0,8})\s*(?:балл|б\b)/i,
-            /^\s*(?:\d{1,2}[.)]\s*)?балл\S*\s*[:—–-]\s*(\d[\d\s]{0,8})/im
+            new RegExp(`(?:баланс|кол-?во\\s+бал+[а-яё]*|количество\\s+бал+[а-яё]*|накоплен\\S*|имеющ\\S*\\s+бал+[а-яё]*|мои\\s+бал+[а-яё]*)[^\\d\\n]{0,25}${NUM}`, 'i'),
+            new RegExp(`(?:у\\s+меня|имею|имеется|накопил\\S*|на\\s+(?:счету|счёте|балансе))[^\\d\\n]{0,20}${NUM}\\s*(?:бал|б\\b)`, 'i'),
+            new RegExp(`^[ \\t]*(?:\\d{1,2}[.)]\\s*)?бал+[а-яё]*[ \\t]*[:—–-][ \\t]*${NUM}`, 'im')
         ];
         let have = null;
         for (const re of balRe) {
@@ -3774,35 +3781,52 @@ const Points = {
                 break;
             }
         }
-        // что берёт: строки «Что хотите…», «Товар», «Обменять на…»; если таких нет — весь текст без строки баланса
-        const wantLines = t.split('\n').filter(l => /хоч|жела|обмен|приобр|товар|наград|выбор|получ|купи|покуп|возьм/i.test(l) && !/баланс|количеств\S*\s+балл|у\s+меня\s+\d/i.test(l));
-        const zone = (wantLines.length ? wantLines.join('\n') : t).toLowerCase();
-        const zw = new Set(this.words(zone));
+        // что берёт: пункт «На что хотите обменять» — его строка после двоеточия и следующие строки до «4. Дата»
+        const lines = t.split('\n');
+        let want = '';
+        const at = lines.findIndex(l => /на\s+что\s+(?:хотите|хочу)|обменя\S*\s+(?:бал+\S*\s+)?на|что\s+хотите|хочу\s+(?:обменять|получить|приобрести)|желаю/i.test(l));
+        if (at >= 0) {
+            const head = lines[at];
+            want = head.includes(':') ? head.slice(head.indexOf(':') + 1) : head.replace(/^.*?(?:хочу|желаю)\s+(?:обменять\s+(?:бал+\S*\s+)?на|получить|приобрести)?/i, '');
+            for (let i = at + 1; i < lines.length && i < at + 6; i++) {
+                if (/^\s*\d[.)]|дата|^\s*ник/i.test(lines[i])) break;
+                want += '\n' + lines[i];
+            }
+        }
+        // несколько позиций: «VIP и 100 000 рублей», через запятую, плюс или с новой строки
+        const parts = want
+            .split(/\n|,|;|\+|\sи\s/i)
+            .map(x => x.replace(/[-—–]\s*\d[\d\s]*\s*бал+\S*\.?/gi, '').trim())
+            .filter(x => this.words(x).length);
         const items = [];
-        prices.forEach(p => {
-            const hit = p.w.filter(w => zw.has(w)).length;
-            // все слова названия (или почти все в длинном названии)
-            if (!hit || hit < Math.max(1, Math.ceil(p.w.length * 0.75))) return;
-            // количество: «2 шт», «x2», «2 кейса»
-            const first = p.w[0];
-            const qm = zone.match(new RegExp(`(?:(\\d{1,3})\\s*(?:шт\\S*|x|х|×)?\\s*${first}|${first}\\S*\\s*(?:x|х|×)\\s*(\\d{1,3}))`, 'i'));
-            const q = qm ? Math.max(1, Math.min(99, Number(qm[1] || qm[2]))) : 1;
-            items.push({ name: p.name, price: p.price, q, score: hit / p.w.length });
+        parts.forEach(part => {
+            const ww = this.words(part).filter(w => !/^\d+$/.test(w));
+            if (!ww.length) return;
+            let best = null;
+            prices.forEach(p => {
+                const hits = ww.filter(w => p.w.some(x => this.same(w, x))).length;
+                if (!hits) return;
+                const cov = hits / ww.length,
+                    score = cov + (hits / p.w.length) * 0.3;
+                if ((cov >= 0.6 || (hits >= 2 && hits / p.w.length >= 0.5)) && (!best || score > best.score)) best = { p, score };
+            });
+            if (!best || items.some(x => x.name === best.p.name)) return;
+            // количество: «2 шт», «x2», «2 раза»
+            const qm = part.match(/(?:^|\s)(\d{1,2})\s*(?:шт\S*|раз\S*|x|х|×)|(?:x|х|×)\s*(\d{1,2})\b/i);
+            const q = qm ? Math.max(1, Math.min(20, Number(qm[1] || qm[2]))) : 1;
+            items.push({ name: best.p.name, price: best.p.price, q });
         });
-        // из похожих названий («Кейс» и «Кейс золотой») — самое полное совпадение
-        items.sort((a, b) => b.score - a.score || b.name.length - a.name.length);
-        const picked = items.filter((x, i) => !items.slice(0, i).some(y => y.name.toLowerCase().includes(x.name.toLowerCase()) || x.name.toLowerCase().includes(y.name.toLowerCase())));
         // сумма, которую агент указал сам: «Стоимость: 300 баллов», «Итого 300»
-        const sm = t.match(/(?:стоимост\S*|итого|сумм\S*|цена|потрат\S*|спиш\S*)[^\d\n]{0,20}(\d[\d\s]{0,8})/i);
-        const need = picked.length ? picked.reduce((s, x) => s + x.price * x.q, 0) : sm ? this.num(sm[1]) : null;
-        return { have, need, items: picked, stated: sm ? this.num(sm[1]) : null };
+        const sm = t.match(new RegExp(`(?:стоимост\\S*|итого|сумм\\S*|цена|потрат\\S*|спиш\\S*)[^\\d\\n]{0,20}${NUM}`, 'i'));
+        const need = items.length ? items.reduce((s, x) => s + x.price * x.q, 0) : sm ? this.num(sm[1]) : null;
+        return { have, need, items, stated: sm ? this.num(sm[1]) : null, asked: want.trim() };
     },
     badge(r) {
         const f = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-        const what = r.items.length ? r.items.map(x => `${x.name}${x.q > 1 ? ' ×' + x.q : ''} — ${f(x.price * x.q)}`).join('\n') : 'Товар из списка не найден';
+        const what = r.items.length ? r.items.map(x => `${x.name}${x.q > 1 ? ' ×' + x.q : ''} — ${f(x.price * x.q)}`).join('\n') : r.asked ? `«${r.asked.slice(0, 80)}» — такого нет в прайсе первого сообщения` : 'Товар не указан';
         let cls, txt;
         if (r.need == null && r.have == null) return null;
-        if (r.need == null) (cls = 'unk'), (txt = `Баланс ${f(r.have)} · товар не найден`);
+        if (r.need == null) (cls = 'unk'), (txt = r.asked ? `Баланс ${f(r.have)} · нет в прайсе` : `Баланс ${f(r.have)} · товар не указан`);
         else if (r.have == null) (cls = 'unk'), (txt = `Нужно ${f(r.need)} · баланс не указан`);
         else if (r.have >= r.need) (cls = 'ok'), (txt = `Хватает: нужно ${f(r.need)}, есть ${f(r.have)}`);
         else (cls = 'no'), (txt = `Не хватает ${f(r.need - r.have)}: нужно ${f(r.need)}, есть ${f(r.have)}`);
@@ -3833,7 +3857,10 @@ const Points = {
             if (msg.querySelector('.vd-pts')) return;
             const body = msg.querySelector('.message-body .bbWrapper');
             if (!body) return;
-            const b = this.badge(this.parseApp(Page.postText(body), prices));
+            // цитата чужой заявки в ответе модератора — не заявка
+            const own = body.cloneNode(true);
+            own.querySelectorAll('.bbCodeBlock--quote, blockquote').forEach(q => q.remove());
+            const b = this.badge(this.parseApp(Page.postText(own), prices));
             if (!b) return;
             const el = document.createElement('span');
             el.className = 'vd-pts ' + b.cls;
@@ -15931,6 +15958,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.52',
+        ['Обменник баллов: баланс больше не склеивается со следующей строкой («85» вместо «853»), товар ищется по пункту «На что хотите обменять» — «Смена Баннера» находит «Смену Баннера/Статуса…», «Иммунитет от предупреждений» — «Иммунитет к предупреждению». Ответы модераторов с цитатой заявки больше не помечаются']
+    ],
     [
         '1.11.51',
         ['Телефон: быстрая навигация снова работает — закреплённые разделы отдельной полосой в самом верху страницы, листаются пальцем, группы открываются касанием']
