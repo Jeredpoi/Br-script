@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.52
+// @version      1.11.53
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.52', // подставляет build.sh из @version
+    version: '1.11.53', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -1487,6 +1487,8 @@ const DEFAULT_PACKS = [
     {
         id: 'points',
         name: 'Обменник баллов (агенты поддержки)',
+        // в разделе агентов поддержки: тема обменника — только этот набор, без жалоб на агентов
+        only: true,
         match: 'обменник|обмен\\S*\\s+балл|балл\\S*\\s+(?:на|обмен)|магазин\\s+балл',
         kind: 'app',
         items: [
@@ -9034,7 +9036,10 @@ class ReplyBar {
     // наборы ответов под тему: сначала по разделу самой темы и заголовку, если ничего — по всей цепочке разделов
     foundPacks() {
         const here = Packs.detect(Page.section() + ' ' + Page.title());
-        return here.length ? here : Packs.detect(Page.crumbs() + ' ' + Page.title());
+        const found = here.length ? here : Packs.detect(Page.crumbs() + ' ' + Page.title());
+        // тема одного вида (обменник баллов в разделе агентов поддержки) — только её набор, без соседних по разделу
+        const only = found.filter(p => (p.only || p.id === 'points') && Packs.detect(Page.title()).includes(p));
+        return only.length ? only : found;
     }
     packs() {
         if (this.packOverride) {
@@ -15958,6 +15963,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.53',
+        ['Обменник баллов: в теме обменника — только его ответы, без набора «Жалобы на агентов поддержки» из того же раздела']
+    ],
     [
         '1.11.52',
         ['Обменник баллов: баланс больше не склеивается со следующей строкой («85» вместо «853»), товар ищется по пункту «На что хотите обменять» — «Смена Баннера» находит «Смену Баннера/Статуса…», «Иммунитет от предупреждений» — «Иммунитет к предупреждению». Ответы модераторов с цитатой заявки больше не помечаются']
