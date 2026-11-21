@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.49
+// @version      1.11.50
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.49', // подставляет build.sh из @version
+    version: '1.11.50', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -1485,6 +1485,29 @@ const DEFAULT_PACKS = [
         ]
     },
     {
+        id: 'points',
+        name: 'Обменник баллов (агенты поддержки)',
+        match: 'обменник|обмен\\S*\\s+балл|балл\\S*\\s+(?:на|обмен)|магазин\\s+балл',
+        kind: 'app',
+        items: [
+            it(
+                'approve',
+                'Одобрено',
+                'Ваша заявка на обмен баллов рассмотрена. Обмен будет произведён в ближайшее время, баллы спишутся с вашего счёта. Благодарим за работу в команде поддержки.',
+                { key: 'од' }
+            ),
+            it('deny', 'Недостаточно баллов', 'На вашем счёте недостаточно баллов для выбранного обмена. Накопите необходимое количество и подайте заявку повторно.', {
+                key: 'мало'
+            }),
+            it('deny', 'Неверно указан баланс', 'Указанное в заявке количество баллов не совпадает с действительным.', { key: 'баланс' }),
+            it('deny', 'Нет в списке обмена', 'Выбранной награды нет в списке обмена. Актуальный список — в первом сообщении темы.', { key: 'нет' }),
+            it('deny', 'Неверная стоимость', 'Стоимость в заявке указана неверно. Актуальные цены — в первом сообщении темы.', { key: 'цена' }),
+            it('deny', 'Не по форме', 'Заявка составлена не по форме. Форма — в первом сообщении темы.', { key: 'форма', hint: 'form' }),
+            it('deny', 'Повторная заявка', 'Заявка на этот обмен уже была рассмотрена ранее.', { key: 'повтор' }),
+            it('deny', 'Подаёт не агент поддержки', 'Обмен баллов доступен только действующим агентам поддержки.', { key: 'неаг' })
+        ]
+    },
+    {
         id: 'appeals',
         name: 'Обжалования',
         match: 'обжалов',
@@ -2091,7 +2114,7 @@ const Usage = {
 const DIRECTIONS = {
     admin: { name: 'Администрации', packs: ['common', 'players', 'admins', 'appeals'] },
     orgs: { name: 'Организаций', packs: ['common', 'leaders', 'staff', 'reports', 'apps', 'players'] },
-    ap: { name: 'АП', packs: ['common', 'agents', 'apps'], hint: 'агенты поддержки' },
+    ap: { name: 'АП', packs: ['common', 'agents', 'points', 'apps'], hint: 'агенты поддержки' },
     forum: { name: 'ЗГКФ', packs: ['common', 'players', 'bio', 'rps', 'org', 'apps'], hint: 'форум' }
 };
 
@@ -3230,9 +3253,9 @@ const BIO_REASONS = {
 const BIO_LIMITS = { minWords: 200, maxWords: 600, minFont: 15, fonts: /times new roman|verdana/i };
 
 const BIO_PATTERNS = {
-    powers: /сверхспособн|бессмерт|телепорт|телекинез|магическ|супергеро|читает мысли|невидимк/i,
-    famous: /б[рэе]+д[аеу]? питт|аль капоне|илон[аеу]? маск|джонни депп|путин|навальн/i,
-    violation: /убива\S* всех|маньяк|серийн\S* убийц|психическ\S* боль|ненавидит всех и убивает/i,
+    powers: /сверхспособн|сверхсил|суперсил|бессмерт|неуязвим|телепорт|телекинез|магическ|магией|колдун|ведьм|волшеб|супергеро|читает мысли|читать мысли|невидимк|вампир|оборотен|экстрасенс|предсказыва\S* будущ|воскрес|мутант|киборг|инопланет|пришел[ье]ц/i,
+    famous: /б[рэе]+д[аеу]? питт|аль капоне|илон[аеу]? маск|джонни депп|путин|навальн|ленин|сталин|гитлер|моргенштерн|тимати|роналду|месси|джеки чан|шварценеггер|том[аеу]? круз|ди ?каприо|наполеон|пушкин|киркоров|бузов|маск[аеу]?\b/i,
+    violation: /убива\S* всех|убива\S* (?:людей )?без причин|убива\S* просто так|маньяк|серийн\S* убийц|психическ\S* боль|ненавидит всех и убивает|сбива\S* (?:людей|прохожих)|давит людей|читер|чит(?:ы|ами)\b|баг\S* (?:игры|сервера)|террорист|взрыва\S* (?:людей|здани)/i,
     grownUp: /университет|высше[ем] образовани|свой бизнес|бизнесмен|миллион|служил|армии|женат|замужем|работал/i
 };
 
@@ -3272,7 +3295,26 @@ const BioCheck = {
         const add = (rule, name, status, note) => res.push({ rule, name, status, note, reason: BIO_REASONS[rule] });
 
         const nick = title.match(/биография\s*\|\s*([A-Z][a-z]+[_ ][A-Z][a-z]+)/i);
-        add('1.1', 'Заголовок «Биография | Nick_Name»', nick ? 'ok' : 'fail', nick ? nick[1] : `сейчас «${title}»`);
+        // ник из заголовка — тот же, что в «Имя и фамилия» (латиница или русскими буквами)
+        const field = name => {
+            const m = text.match(new RegExp(`${name}\\s*[:—–-]?\\s*([^\\n]*)`, 'i'));
+            return m ? m[1].trim() : null;
+        };
+        const fio = field('Имя и фамилия') || '';
+        const tr = w => {
+            const T = { a: 'а', b: 'б', v: 'в', g: 'г', d: 'д', e: 'е', z: 'з', i: 'и', k: 'к', l: 'л', m: 'м', n: 'н', o: 'о', p: 'п', r: 'р', s: 'с', t: 'т', u: 'у', f: 'ф', h: 'х', c: 'к', y: 'и', x: 'кс', j: 'дж', w: 'в', q: 'к' };
+            return w.toLowerCase().replace(/zh/g, 'ж').replace(/ch/g, 'ч').replace(/sh/g, 'ш').replace(/kh/g, 'х').replace(/ya/g, 'я').replace(/yu/g, 'ю').replace(/[a-z]/g, ch => T[ch] || ch);
+        };
+        const norm = w => String(w).toLowerCase().replace(/[ёеэ]/g, 'е').replace(/[йиы]/g, 'и').slice(0, 4);
+        let nameNote = nick ? nick[1] : `сейчас «${title}»`,
+            nameSt = nick ? 'ok' : 'fail';
+        if (nick && fio) {
+            const parts = nick[1].split(/[_ ]/);
+            const fw = fio.split(/[\s_]+/).filter(Boolean);
+            const same = parts.every(p => fw.some(f => norm(f) === norm(p) || norm(f) === norm(tr(p))));
+            if (!same) (nameSt = 'warn'), (nameNote = `в заголовке ${nick[1]}, в анкете «${fio.slice(0, 40)}»`);
+        }
+        add('1.1', 'Заголовок «Биография | Nick_Name»', nameSt, nameNote);
 
         add(
             '1.2',
@@ -3286,19 +3328,27 @@ const BioCheck = {
             BIO_PATTERNS.famous.test(text) ? 'warn' : 'ok',
             BIO_PATTERNS.famous.test(text) ? `упоминается «${text.match(BIO_PATTERNS.famous)[0]}»` : ''
         );
-        add('1.4', 'Не скопирована', 'manual', 'автоматически не проверить');
+        // одно и то же предложение дважды — признак вставки кусками
+        const sents = text.split(/[.!?\n]+/).map(x => x.replace(/\s+/g, ' ').trim().toLowerCase()).filter(x => x.split(' ').length >= 6);
+        const dup = sents.filter((x, i) => sents.indexOf(x) !== i).length;
+        add('1.4', 'Не скопирована', dup ? 'warn' : 'manual', dup ? `${dup} ${dup === 1 ? 'предложение повторяется' : 'предложения повторяются'} дословно` : 'на копирование проверь сам');
 
         const lowerStarts = (text.match(/[.!?]\s+[а-яё]/g) || []).length;
-        const spaces = (text.match(/\s[,.!?]/g) || []).length;
-        const sloppy = lowerStarts + spaces;
-        add(
-            '1.5',
-            'Читабельно, без ошибок',
-            sloppy > 6 ? 'warn' : 'ok',
-            sloppy > 6
-                ? `${lowerStarts} предл. с маленькой буквы, ${spaces} пробелов перед знаками`
-                : 'грубых ошибок не видно'
-        );
+        const spaces = (text.match(/[^\s]\s+[,.!?;:](?!\d)/g) || []).length;
+        const glued = (text.match(/[а-яё][,.!?;:][а-яё]/gi) || []).length;
+        const caps = (text.match(/(?:^|[^А-ЯЁа-яё])[А-ЯЁ]{5,}(?![А-ЯЁа-яё])/g) || []).filter(w => !/ГИБДД|ФСБ|МВД|СМИ|ВУЗ|США|СССР|ЦРУ/.test(w)).length;
+        const marks = (text.match(/[!?]{3,}|\.{4,}/g) || []).length;
+        const mixed = (text.match(/[а-яё][a-z]|[a-z][а-яё]/gi) || []).length;
+        const sloppy = lowerStarts + spaces + glued + caps + marks + mixed * 2;
+        const why = [
+            lowerStarts && `${lowerStarts} предл. с маленькой буквы`,
+            spaces && `${spaces} пробелов перед знаками`,
+            glued && `${glued} раз нет пробела после знака`,
+            caps && `${caps} слов капсом`,
+            marks && `${marks} раз «!!!»/«...»`,
+            mixed && `${mixed} слов с латиницей внутри`
+        ].filter(Boolean);
+        add('1.5', 'Читабельно, без ошибок', sloppy > 6 ? 'warn' : 'ok', sloppy > 6 ? why.join(', ') : why.length ? 'мелочи: ' + why.join(', ') : 'грубых ошибок не видно');
 
         const share = this.fontShare(body);
         add(
@@ -3327,24 +3377,42 @@ const BioCheck = {
         );
 
         const age = +((text.match(/возраст\D{0,12}(\d{1,3})/i) || [])[1] || 0);
-        const young = age && age < 18 && BIO_PATTERNS.grownUp.test(text);
-        add(
-            '1.10',
-            'Без противоречий',
-            !age ? 'warn' : young || age > 90 ? 'warn' : 'ok',
-            !age
-                ? 'возраст не найден'
-                : young
-                  ? `${age} лет, но упоминается «${text.match(BIO_PATTERNS.grownUp)[0]}»`
-                  : `возраст ${age}`
-        );
+        const issues = [];
+        if (!age) issues.push('возраст не найден');
+        else {
+            if (age < 14 || age > 90) issues.push(`возраст ${age} — нереалистично`);
+            if (age < 18 && BIO_PATTERNS.grownUp.test(text)) issues.push(`${age} лет, но упоминается «${text.match(BIO_PATTERNS.grownUp)[0]}»`);
+            // возраст и год / дата рождения: «родился в 1998 году», «Дата рождения: 12.05.1998»
+            const by = text.match(/(?:родил\S*|рождени\S*)[^\n]{0,40}?\b(19[3-9]\d|20[0-2]\d)\b/i);
+            if (by) {
+                const yr = new Date().getFullYear() - Number(by[1]);
+                if (Math.abs(yr - age) > 1) issues.push(`возраст ${age}, а по году рождения ${by[1]} — ${yr}`);
+            }
+            if (age < 22 && /окончил\S* (?:университет|институт|вуз|академи)|высше[ем] образовани/i.test(text)) issues.push(`${age} лет — рано для законченного высшего`);
+            const kids = text.match(/(?:в|когда (?:ему|ей) было)\s+(\d{1,2})\s+(?:лет|год)/gi) || [];
+            const over = kids.map(x => +x.match(/\d+/)[0]).filter(n => n > age);
+            if (over.length) issues.push(`упоминается возраст ${over[0]} — больше, чем ему сейчас (${age})`);
+        }
+        // пол и «родился / родилась»
+        const sex = (field('Пол') || '').toLowerCase();
+        const he = (text.match(/\b(?:родился|вырос|окончил|переехал|решил|стал|начал)\b/gi) || []).length,
+            she = (text.match(/\b(?:родилась|выросла|окончила|переехала|решила|стала|начала)\b/gi) || []).length;
+        if (/^ж/.test(sex) && he > she + 1) issues.push('пол женский, а пишется «родился, вырос…»');
+        if (/^м/.test(sex) && she > he + 1) issues.push('пол мужской, а пишется «родилась, выросла…»');
+        add('1.10', 'Без противоречий', issues.length ? 'warn' : 'ok', issues.length ? issues.join('; ') : `возраст ${age}`);
 
         const missing = BIO_FORM.filter(f => !new RegExp(f.replace(/\s+/g, '\\s+'), 'i').test(text));
+        // пункт есть, но пустой: «Пол:» и сразу следующий пункт
+        const labels = BIO_FORM.map(f => f.replace(/\s+/g, '\\s+')).join('|');
+        const empty = BIO_FORM.filter(f => !missing.includes(f)).filter(f => {
+            const m = text.match(new RegExp(`${f.replace(/\s+/g, '\\s+')}\\s*[:—–-]?([\\s\\S]*?)(?=(?:${labels})\\s*[:—–-]|$)`, 'i'));
+            return m && m[1].replace(/[\s:—–.-]+/g, '').length < 2;
+        });
         add(
             'форма',
             'Все пункты формы',
-            missing.length ? 'fail' : 'ok',
-            missing.length ? 'нет: ' + missing.join(', ').toLowerCase() : ''
+            missing.length || empty.length ? 'fail' : 'ok',
+            [missing.length && 'нет: ' + missing.join(', ').toLowerCase(), empty.length && 'пусто: ' + empty.join(', ').toLowerCase()].filter(Boolean).join('; ')
         );
 
         const count = st => res.filter(r => r.status === st).length;
@@ -3616,6 +3684,170 @@ const CHECKS = {
     bio: { title: 'биографии', run: () => BioCheck.run(), answers: r => BioCheck.answers(r) },
     rps: { title: 'RP-ситуации', run: () => RpCheck.run('rps'), answers: r => RpCheck.answers(r) },
     org: { title: 'организации', run: () => RpCheck.run('org'), answers: r => RpCheck.answers(r) }
+};
+
+// обменник баллов агентов поддержки: цены — из первого сообщения темы, в каждой заявке справа —
+// хватает ли баллов на то, что агент просит
+const Points = {
+    // тема обменника: «Обменник баллов», «Обмен баллов», «Магазин баллов»…
+    isThread() {
+        const t = `${Page.title()} ${Page.section()}`;
+        return Page.isThread() && /обменник|обмен\S*\s+балл|балл\S*\s+(?:на|обмен)|магазин\s+балл/i.test(t);
+    },
+    // показываем тем, кому виден набор ответов обменника (АП, главная администрация, свой набор)
+    visible() {
+        const p = DEFAULT_PACKS.find(x => x.id === 'points');
+        return !!p && Access.packVisible(p);
+    },
+    num(s) {
+        return Number(String(s).replace(/[\s .,]/g, ''));
+    },
+    // слово без окончания: «кейсы» и «кейс», «машину» и «машина» совпадут
+    stem(w) {
+        w = w.toLowerCase().replace(/ё/g, 'е');
+        return w.length > 5 ? w.slice(0, w.length - 2) : w.length > 3 ? w.slice(0, w.length - 1) : w;
+    },
+    words(s) {
+        return (String(s).toLowerCase().match(/[a-zа-яё0-9]{2,}/gi) || []).filter(w => !/^(балл\S*|шт|за|на|из|до|от|по|или|для)$/i.test(w)).map(w => this.stem(w));
+    },
+    // прайс из текста первого сообщения: «Название — 150 баллов», «150 баллов — Название», «Название: 150 б.»
+    parsePrices(text) {
+        const out = [];
+        const UNIT = '(?:балл\\S*|б\\.?|бал\\.?|points?|pts)';
+        String(text)
+            .split('\n')
+            .map(l => l.replace(/[•●▪►✅✔️⭐*]+/g, ' ').replace(/\s+/g, ' ').trim())
+            .filter(l => l.length > 3 && l.length < 160)
+            .forEach(l => {
+                let m = l.match(new RegExp(`^(?:\\d{1,2}[.)]\\s*)?(.{2,90}?)\\s*[-—–:=|]+\\s*(\\d[\\d\\s.]*)\\s*${UNIT}`, 'i'));
+                let name, price;
+                if (m) (name = m[1]), (price = this.num(m[2]));
+                else {
+                    m = l.match(new RegExp(`^(?:\\d{1,2}[.)]\\s*)?(\\d[\\d\\s.]*)\\s*${UNIT}\\s*[-—–:=|]+\\s*(.{2,90})$`, 'i'));
+                    if (m) (name = m[2]), (price = this.num(m[1]));
+                }
+                if (!name || !(price > 0) || price > 1e7) return;
+                name = name.replace(/[«»"]/g, '').replace(/\s*[-—–:=|]+\s*$/, '').trim();
+                // строки-правила и итоги — не товары
+                if (/итого|всего|баланс|у\s+вас|минимал|максимал|правил|срок/i.test(name) || this.words(name).length === 0) return;
+                out.push({ name, price, w: this.words(name) });
+            });
+        return out;
+    },
+    // цены этой темы: с первой страницы сразу, иначе — подгружаем первую страницу (раз в 6 часов)
+    async prices() {
+        const base = Page.threadBase();
+        if (!base) return [];
+        const first = Page.firstPost();
+        if (first) {
+            const list = this.parsePrices(Page.postText(first));
+            if (list.length) Store.set('pts:' + base, { at: Date.now(), list });
+            return list;
+        }
+        const c = Store.get('pts:' + base, null);
+        if (c && Date.now() - c.at < 6 * 3600e3) return c.list;
+        try {
+            const r = await fetch(base, { credentials: 'include' });
+            const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+            const body = doc.querySelector('.message--post .message-body .bbWrapper, .message-body .bbWrapper');
+            const list = body ? this.parsePrices(Page.postText(body)) : [];
+            Store.set('pts:' + base, { at: Date.now(), list });
+            return list;
+        } catch {
+            return c ? c.list : [];
+        }
+    },
+    // заявка: сколько баллов у агента и что он берёт
+    parseApp(text, prices) {
+        const t = String(text);
+        // баланс: «Баллы: 450», «Количество баллов: 450», «У меня 450 баллов», «Баланс — 450»
+        const balRe = [
+            /(?:баланс|кол-?во\s+балл\S*|количество\s+балл\S*|накоплен\S*|имеющ\S*\s+балл\S*|мои\s+балл\S*|балл\S*\s+(?:на\s+(?:счету|счёте|балансе)|сейчас|всего|в\s+наличии))[^\d\n]{0,25}(\d[\d\s]{0,8})/i,
+            /(?:у\s+меня|имею|имеется|накопил\S*|на\s+(?:счету|счёте|балансе))[^\d\n]{0,20}(\d[\d\s]{0,8})\s*(?:балл|б\b)/i,
+            /^\s*(?:\d{1,2}[.)]\s*)?балл\S*\s*[:—–-]\s*(\d[\d\s]{0,8})/im
+        ];
+        let have = null;
+        for (const re of balRe) {
+            const m = t.match(re);
+            if (m) {
+                have = this.num(m[1]);
+                break;
+            }
+        }
+        // что берёт: строки «Что хотите…», «Товар», «Обменять на…»; если таких нет — весь текст без строки баланса
+        const wantLines = t.split('\n').filter(l => /хоч|жела|обмен|приобр|товар|наград|выбор|получ|купи|покуп|возьм/i.test(l) && !/баланс|количеств\S*\s+балл|у\s+меня\s+\d/i.test(l));
+        const zone = (wantLines.length ? wantLines.join('\n') : t).toLowerCase();
+        const zw = new Set(this.words(zone));
+        const items = [];
+        prices.forEach(p => {
+            const hit = p.w.filter(w => zw.has(w)).length;
+            // все слова названия (или почти все в длинном названии)
+            if (!hit || hit < Math.max(1, Math.ceil(p.w.length * 0.75))) return;
+            // количество: «2 шт», «x2», «2 кейса»
+            const first = p.w[0];
+            const qm = zone.match(new RegExp(`(?:(\\d{1,3})\\s*(?:шт\\S*|x|х|×)?\\s*${first}|${first}\\S*\\s*(?:x|х|×)\\s*(\\d{1,3}))`, 'i'));
+            const q = qm ? Math.max(1, Math.min(99, Number(qm[1] || qm[2]))) : 1;
+            items.push({ name: p.name, price: p.price, q, score: hit / p.w.length });
+        });
+        // из похожих названий («Кейс» и «Кейс золотой») — самое полное совпадение
+        items.sort((a, b) => b.score - a.score || b.name.length - a.name.length);
+        const picked = items.filter((x, i) => !items.slice(0, i).some(y => y.name.toLowerCase().includes(x.name.toLowerCase()) || x.name.toLowerCase().includes(y.name.toLowerCase())));
+        // сумма, которую агент указал сам: «Стоимость: 300 баллов», «Итого 300»
+        const sm = t.match(/(?:стоимост\S*|итого|сумм\S*|цена|потрат\S*|спиш\S*)[^\d\n]{0,20}(\d[\d\s]{0,8})/i);
+        const need = picked.length ? picked.reduce((s, x) => s + x.price * x.q, 0) : sm ? this.num(sm[1]) : null;
+        return { have, need, items: picked, stated: sm ? this.num(sm[1]) : null };
+    },
+    badge(r) {
+        const f = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+        const what = r.items.length ? r.items.map(x => `${x.name}${x.q > 1 ? ' ×' + x.q : ''} — ${f(x.price * x.q)}`).join('\n') : 'Товар из списка не найден';
+        let cls, txt;
+        if (r.need == null && r.have == null) return null;
+        if (r.need == null) (cls = 'unk'), (txt = `Баланс ${f(r.have)} · товар не найден`);
+        else if (r.have == null) (cls = 'unk'), (txt = `Нужно ${f(r.need)} · баланс не указан`);
+        else if (r.have >= r.need) (cls = 'ok'), (txt = `Хватает: нужно ${f(r.need)}, есть ${f(r.have)}`);
+        else (cls = 'no'), (txt = `Не хватает ${f(r.need - r.have)}: нужно ${f(r.need)}, есть ${f(r.have)}`);
+        const warn = r.stated != null && r.need != null && r.items.length && r.stated !== r.need ? `\nАгент указал сумму ${f(r.stated)} — по прайсу ${f(r.need)}` : '';
+        return { cls, txt, title: `${what}${warn}` };
+    },
+    async mark() {
+        if (!this.isThread() || !this.visible()) return;
+        const prices = await this.prices();
+        if (!prices.length) return;
+        if (!document.getElementById('vd-pts-css')) {
+            const st = document.createElement('style');
+            st.id = 'vd-pts-css';
+            st.textContent = `.vd-pts { display: inline-flex; align-items: center; gap: 5px; margin: 0 8px; padding: 2px 9px; border-radius: 999px; font: 600 11.5px/1.5 system-ui, sans-serif; white-space: nowrap; cursor: help; }
+.vd-pts.ok { color: #7ee2a8; background: rgba(47,191,113,.14); border: 1px solid rgba(47,191,113,.4); }
+.vd-pts.no { color: #ff9b9e; background: rgba(229,72,77,.14); border: 1px solid rgba(229,72,77,.45); }
+.vd-pts.unk { color: #c9cdd6; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); }
+@media (max-width: 650px) { .vd-pts { white-space: normal; margin: 4px 0 0; } }`;
+            document.head.appendChild(st);
+        }
+        const firstId = (() => {
+            const f = Page.firstPost();
+            const m = f && f.closest('.message');
+            return m ? m.id : '';
+        })();
+        document.querySelectorAll('.message--post').forEach(msg => {
+            if (msg.id && msg.id === firstId) return;
+            if (msg.querySelector('.vd-pts')) return;
+            const body = msg.querySelector('.message-body .bbWrapper');
+            if (!body) return;
+            const b = this.badge(this.parseApp(Page.postText(body), prices));
+            if (!b) return;
+            const el = document.createElement('span');
+            el.className = 'vd-pts ' + b.cls;
+            el.title = b.title;
+            el.textContent = (b.cls === 'ok' ? '✓ ' : b.cls === 'no' ? '✗ ' : '? ') + b.txt;
+            const spot = msg.querySelector('.message-attribution-opposite') || msg.querySelector('.message-attribution');
+            if (spot && spot.tagName === 'UL') {
+                const li = document.createElement('li');
+                li.appendChild(el);
+                spot.prepend(li);
+            } else if (spot) spot.prepend(el);
+            else body.before(el);
+        });
+    }
 };
 
 // генеративные обои
@@ -15683,6 +15915,14 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.50',
+        [
+            'Обменник баллов (для АП): скрипт сам читает цены из первого сообщения темы и в каждой заявке справа пишет «Хватает: нужно 350, есть 450» или «Не хватает 400». Наведи — видно, что посчитано',
+            'Ответы для обменника: «Одобрено» и отказы с причиной — недостаточно баллов, неверный баланс, нет в списке, неверная стоимость, не по форме, повторная заявка',
+            'Проверка RP-биографий строже: ник в заголовке и в анкете, возраст и год рождения, пол и «родился/родилась», учёба не по возрасту, пустые пункты формы, повторённый текст, капс и латиница в словах, больше сверхспособностей и поводов нарушать правила'
+        ]
+    ],
+    [
         '1.11.49',
         ['Телефон: в темах, где панель свёрнута («нет прав модератора»), кнопка «Норма / доп. репорт» — отдельной строкой во всю ширину, а не за краем экрана']
     ],
@@ -16829,6 +17069,7 @@ function boot() {
         safe(() => Launcher.sync());
         safe(mountBars);
         safe(watchReplyTo);
+        safe(() => Points.mark().catch(() => {}));
         safe(mountAutograph);
         safe(() => Logo.apply());
         safe(() => QNav.mount());
