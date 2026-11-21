@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.48
+// @version      1.11.49
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.48', // подставляет build.sh из @version
+    version: '1.11.49', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -7805,6 +7805,12 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .no-perm { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 5px 6px 5px 11px; border-radius: 999px; font-size: 11.5px; color: var(--tx-3); background: rgba(255,255,255,.035); border: 1px solid var(--line); }
 .no-perm button { padding: 3px 10px; border-radius: 999px; color: var(--tx-2); font-weight: 650; background: rgba(255,255,255,.06); }
 .no-perm button:hover { color: var(--tx); background: rgba(255,255,255,.1); }
+/* телефон: строка «нет прав» переносится, кнопка нормы — отдельной строкой во всю ширину, а не за краем экрана */
+@media (max-width: 760px) {
+  .no-perm { display: flex; flex-wrap: wrap; border-radius: 14px; padding: 8px 10px; row-gap: 8px; }
+  .no-perm > span { flex: 1 1 150px; min-width: 0; }
+  .no-perm .vd-rep-btn { flex: 1 1 100%; justify-content: center; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; background: rgba(47,191,113,.12); }
+}
 .item .fit-b { color: #ffd166; margin-right: 5px; text-shadow: 0 0 8px rgba(255,209,102,.6); }
 .item.fit { background: color-mix(in srgb, var(--c) 6%, transparent); }
 .item.fit .t small { color: color-mix(in srgb, var(--c) 45%, var(--tx-2)); }
@@ -15676,6 +15682,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.49',
+        ['Телефон: в темах, где панель свёрнута («нет прав модератора»), кнопка «Норма / доп. репорт» — отдельной строкой во всю ширину, а не за краем экрана']
+    ],
     [
         '1.11.48',
         ['Видео YouTube на фоне: два плеера по очереди — следующий запускается заранее невидимым, и в конце ролика они плавно меняются. Кнопки «назад / пауза / вперёд» больше не видны']
