@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.56
+// @version      1.11.57
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.56', // подставляет build.sh из @version
+    version: '1.11.57', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -16092,6 +16092,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.57',
+        ['Телефон: «Закреплённая панель сверху» действительно закреплена — не уезжает при прокрутке, шапка форума встаёт под неё']
+    ],
+    [
         '1.11.56',
         ['Снятие наказаний: понимает опечатки в виде наказания («преупреждение», «выгавор», «пред»), даты «19.11», «19.11.26», «1911.2026» и время, если подпись пункта разорвана переносом. Если дату не разобрать — пометка «дата с ошибкой» с тем, как написано']
     ],
@@ -16680,11 +16684,10 @@ const BASE_CSS = `
 .vd-topbar-inner { width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 10px; height: 100%; display: flex; align-items: center; min-width: 0; }
 #vd-topbar #vd-qnav { margin-left: 0; padding-left: 0; border-left: 0; }
 /* липкое меню форума встаёт под закреплённую панель */
-@media (min-width: 651px) { html.vd-toppin .p-navSticky, html.vd-toppin .uix_stickyBar { top: var(--vd-top-h, 38px) !important; } }
-/* телефон: своя полоса закреплённых ссылок вверху страницы — листается пальцем, без стрелок и без «липкости»
-   (у форума на телефоне своя липкая шапка) */
+html.vd-toppin .p-navSticky, html.vd-toppin .uix_stickyBar { top: var(--vd-top-h, 38px) !important; }
+/* телефон: своя полоса закреплённых ссылок, закреплена сверху; липкая шапка форума встаёт под неё. Листается пальцем, без стрелок */
 @media (max-width: 650px) {
-  #vd-topbar { position: relative; height: 44px; }
+  #vd-topbar { height: 44px; }
   #vd-topbar .vd-topbar-inner { padding: 0 8px; }
   #vd-topbar #vd-qnav { padding: 0; }
   #vd-qnav .vd-qn-arr { display: none !important; }
