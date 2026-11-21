@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.57
+// @version      1.11.58
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.57', // подставляет build.sh из @version
+    version: '1.11.58', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -10516,6 +10516,8 @@ const QNav = {
         // на телефоне панель модератора форума свёрнута — всегда своя полоса
         const staff = own ? null : document.querySelector('.p-staffBar');
         document.documentElement.classList.toggle('vd-toppin', on);
+        // своя полоса (без строки «Модер.»): на телефоне липкая шапка форума встаёт под неё
+        document.documentElement.classList.toggle('vd-topown', !!on && !staff);
         if (staff) staff.classList.toggle('vd-pinned', on);
         let tb = document.getElementById('vd-topbar');
         const sizeTo = el =>
@@ -10531,7 +10533,8 @@ const QNav = {
             tb = document.createElement('div');
             tb.id = 'vd-topbar';
             tb.innerHTML = '<div class="vd-topbar-inner"></div>';
-            const wrap = document.querySelector('.p-pageWrapper') || document.body;
+            // на телефоне — прямо в <body>: у обёртки страницы обрезка по краям, и закрепление внутри неё не работает
+            const wrap = (innerWidth > 650 && document.querySelector('.p-pageWrapper')) || document.body;
             wrap.insertBefore(tb, wrap.firstChild);
         }
         sizeTo(tb);
@@ -10539,11 +10542,12 @@ const QNav = {
     },
     spot(place) {
         if (place === 'staff') place = 'top';
-        // телефон: меню форума свёрнуто в «гамбургер» — ссылки всегда отдельной полосой вверху страницы
+        // телефон: меню форума свёрнуто в «гамбургер» — ссылки вверху: в строке «Модер.» (она и так закреплена),
+        // а у кого её нет — своей полосой
         const phone = innerWidth <= 650;
         if (phone) place = 'top';
         if (place === 'top') {
-            const host = this.pin(true, phone);
+            const host = this.pin(true);
             if (host) return { place, host };
         } else this.pin(false);
         if (place === 'sub') {
@@ -16092,6 +16096,10 @@ function bootLogs() {
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
     [
+        '1.11.58',
+        ['Телефон: закреплённые разделы встают в строку «Модер.» (она у форума и так закреплена) и больше не перекрывают её; у кого этой строки нет — своя полоса в самом верху, которая не уезжает при прокрутке']
+    ],
+    [
         '1.11.57',
         ['Телефон: «Закреплённая панель сверху» действительно закреплена — не уезжает при прокрутке, шапка форума встаёт под неё']
     ],
@@ -16684,7 +16692,8 @@ const BASE_CSS = `
 .vd-topbar-inner { width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 10px; height: 100%; display: flex; align-items: center; min-width: 0; }
 #vd-topbar #vd-qnav { margin-left: 0; padding-left: 0; border-left: 0; }
 /* липкое меню форума встаёт под закреплённую панель */
-html.vd-toppin .p-navSticky, html.vd-toppin .uix_stickyBar { top: var(--vd-top-h, 38px) !important; }
+@media (min-width: 651px) { html.vd-toppin .p-navSticky, html.vd-toppin .uix_stickyBar { top: var(--vd-top-h, 38px) !important; } }
+@media (max-width: 650px) { html.vd-topown .p-navSticky, html.vd-topown .uix_stickyBar { top: var(--vd-top-h, 44px) !important; } }
 /* телефон: своя полоса закреплённых ссылок, закреплена сверху; липкая шапка форума встаёт под неё. Листается пальцем, без стрелок */
 @media (max-width: 650px) {
   #vd-topbar { height: 44px; }
