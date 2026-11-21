@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.59
+// @version      1.11.60
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.59', // подставляет build.sh из @version
+    version: '1.11.60', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -8100,6 +8100,12 @@ input, textarea, select { font: inherit; color: var(--tx); }
   .bar-row > .verdicts.less.more { -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 76px), transparent calc(100% - 30px), #000 calc(100% - 30px)); mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 76px), transparent calc(100% - 30px), #000 calc(100% - 30px)); }
   .verdicts.more .vmore { display: grid; }
 }
+/* сенсорный экран: ряд листается пальцем — без кнопки «›» поверх чипов, только мягкое затухание у края */
+@media (hover: none) {
+  .verdicts.more .vmore { display: none !important; }
+  .bar-row > .verdicts.more { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent); }
+  .bar-row > .verdicts.less.more { -webkit-mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 56px), transparent); mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 56px), transparent); }
+}
 .vmore { display: none; position: sticky; right: 0; flex: none; align-self: center; width: 26px; height: 26px; margin-left: 4px; place-items: center; border-radius: 50%; color: var(--tx); background: color-mix(in srgb, var(--acc) 22%, #16181e); border: 1px solid var(--line-2); box-shadow: 0 4px 12px -4px rgba(0,0,0,.7); }
 .vmore .vi { transform: rotate(-90deg); }
 .vmore:hover { background: color-mix(in srgb, var(--acc) 40%, #16181e); }
@@ -16103,6 +16109,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.60',
+        ['Телефон: кнопка «›» больше не лежит поверх «Отказано» — ряд вердиктов листается пальцем, у края мягкое затухание']
+    ],
     [
         '1.11.59',
         ['Телефон: панель VERDICT снова над полем ответа, а не под ним — редактор форума на телефоне появляется позже, и скрипт теперь сам переставляет панель']
