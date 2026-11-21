@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VERDICT — быстрые ответы для администрации Black Russia
 // @namespace    verdict.br.forum
-// @version      1.11.54
+// @version      1.11.55
 // @description  Готовые ответы над полем ввода, смена статуса темы, свои шаблоны и фоны для форума Black Russia.
 // @author       Максим Паль!?
 // @match        https://forum.blackrussia.online/*
@@ -66,7 +66,7 @@ const BRAND = Object.freeze({
     author: 'Максим Паль!?', // должен совпадать с @author в шапке скрипта
     tagline: 'Быстрые ответы · Black Russia',
     namespace: 'verdict.br.forum',
-    version: '1.11.54', // подставляет build.sh из @version
+    version: '1.11.55', // подставляет build.sh из @version
     // откуда ставятся обновления (build.sh, UPDATE_BASE)
     update: 'https://raw.githubusercontent.com/Jeredpoi/Br-script/main',
     build: 'VRD-7Q4K-2026',
@@ -2145,7 +2145,7 @@ const ORGS = { soc: 'Соц', crim: 'Крим', sil: 'Сил', law: 'Право'
 
 const LEVELS = {
     ga: { name: 'Главная администрация', icon: 'crown', packs: '*', hide: ['ga', 'zga'] },
-    curator: { name: 'Куратор', icon: 'star', dirs: ['admin', 'orgs', 'forum'], hide: [] },
+    curator: { name: 'Куратор', icon: 'star', dirs: ['admin', 'orgs', 'ap', 'forum'], hide: [] },
     deputy: { name: 'Заместитель куратора', icon: 'users', dirs: ['admin', 'orgs', 'ap'], hide: ['kp'] },
     senior: { name: 'Старший следящий', icon: 'eye', dirs: ['orgs', 'ap'], hide: ['kp'] },
     watcher: { name: 'Следящий', icon: 'eye', dirs: ['orgs', 'ap'], hide: ['kp'] },
@@ -16082,6 +16082,10 @@ function bootLogs() {
 
 // «Что нового»: после обновления скрипта при первом открытии форума — окно со списком изменений
 const CHANGES = [
+    [
+        '1.11.55',
+        ['Должности: у куратора появилось направление «АП» — КАП видит ответы и пометки агентов поддержки (обменник баллов, снятие наказаний), как следящие и ЗКАП; ЗГА и выше видят всё']
+    ],
     [
         '1.11.54',
         [
